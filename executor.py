@@ -163,17 +163,26 @@ class Executor:
 
             # ACT
             action_error = False
-            try:
-                action = parse_action(action_raw)
-                if action.type == "tool":
-                    # TOOL 명령 → tools.py 디스패처로 위임
-                    observation = await execute_tool(action.value or "", action.tool_args or "", page)
-                else:
-                    observation = await execute(action, page)
-            except Exception as e:
+            if not action_raw.strip():
                 action = None
                 action_error = True
-                observation = f"에러: {e}"
+                observation = (
+                    "Action: 필드가 비어있습니다. "
+                    "목표 달성 시 반드시 DONE \"요약 | 부품:카테고리 | 이름:제품명 | 가격:숫자\" 를 출력하세요. "
+                    "아직 미완료라면 다음 TOOL 또는 CLICK 액션을 출력하세요."
+                )
+            else:
+                try:
+                    action = parse_action(action_raw)
+                    if action.type == "tool":
+                        # TOOL 명령 → tools.py 디스패처로 위임
+                        observation = await execute_tool(action.value or "", action.tool_args or "", page)
+                    else:
+                        observation = await execute(action, page)
+                except Exception as e:
+                    action = None
+                    action_error = True
+                    observation = f"에러: {e}"
 
             exec_steps.append(ExecStep(
                 step=step_num,
