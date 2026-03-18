@@ -12,6 +12,7 @@ from som import perceive, ScreenState
 from actions import parse_action, execute, Action
 from memory import WorkingMemory, try_parse_part
 from tools import execute_tool
+from knowledge import DanawaKnowledge, BASE_KNOWLEDGE, load_knowledge
 
 
 MAX_EXEC_STEPS = 12
@@ -23,13 +24,10 @@ _EXEC_SYSTEM_TMPL = """\
 
 {memory_context}
 
+{knowledge_context}
+
 ## 현재 목표
 {goal}
-
-## 다나와 PC 견적 툴 UI 패턴
-1. 오른쪽 "PC 주요구성" 패널에 CPU·메인보드·메모리·SSD·케이스·파워 카테고리 있음
-2. 카테고리 클릭 → 가운데 영역에 제품 검색/목록 표시
-3. 검색어는 브랜드/모델명 (예: "i3-12100", "H610", "DDR4 8GB") — 용도어("사무용") X
 
 ## 액션 형식 — 두 가지 방식
 
@@ -110,9 +108,11 @@ class StepResult:
 
 
 class Executor:
-    def __init__(self, client: openai.OpenAI, model: str):
+    def __init__(self, client: openai.OpenAI, model: str, knowledge: DanawaKnowledge | None = None):
         self.client = client
         self.model = model
+        # 지식이 주입되지 않으면 캐시 또는 BASE_KNOWLEDGE 사용
+        self.knowledge = knowledge or load_knowledge()
 
     async def run(
         self,
@@ -127,13 +127,7 @@ class Executor:
         """
         history: list[dict] = []
         exec_steps: list[ExecStep] = []
-
-        system_prompt = _EXEC_SYSTEM_TMPL.format(
-            memory_context=memory.to_context(),
-            goal=goal,
-            width=1280,
-            height=800,
-        )
+        knowledge_ctx = self.knowledge.to_context()
 
         prev_action_raw = ""
         same_action_count = 0
@@ -144,6 +138,7 @@ class Executor:
             state: ScreenState = await perceive(page)
             system_prompt_with_vp = _EXEC_SYSTEM_TMPL.format(
                 memory_context=memory.to_context(),
+                knowledge_context=knowledge_ctx,
                 goal=goal,
                 width=state.width,
                 height=state.height,

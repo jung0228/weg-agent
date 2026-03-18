@@ -23,12 +23,12 @@ from eval import evaluate, print_eval
 load_dotenv()
 
 
-async def run_task(task, headless: bool = False, run_eval: bool = True):
+async def run_task(task, headless: bool = False, run_eval: bool = True, explore_ui: bool = False):
     api_key = os.environ.get("LETSUR_API_KEY")
     if not api_key:
         raise RuntimeError("LETSUR_API_KEY 환경변수가 없습니다. .env 파일을 확인하세요.")
 
-    agent = WebAgent(api_key=api_key)
+    agent = WebAgent(api_key=api_key, explore_ui=explore_ui)
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(
@@ -104,12 +104,15 @@ async def main():
     parser.add_argument("--task", choices=list(TASKS_BY_ID.keys()), help="특정 태스크만 실행")
     parser.add_argument("--headless", action="store_true", help="headless 모드")
     parser.add_argument("--no-eval", action="store_true", help="LLM-as-Judge 평가 생략")
+    parser.add_argument("--explore-ui", action="store_true",
+                        help="실행 전 다나와 UI 탐색 → knowledge/ 캐싱 (첫 실행 또는 UI 변경 시 사용)")
     args = parser.parse_args()
 
     tasks = [TASKS_BY_ID[args.task]] if args.task else TASKS
 
     for task in tasks:
-        await run_task(task, headless=args.headless, run_eval=not args.no_eval)
+        await run_task(task, headless=args.headless, run_eval=not args.no_eval,
+                       explore_ui=args.explore_ui)
         print(f"\n{'─'*60}\n")
 
 
