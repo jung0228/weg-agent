@@ -41,13 +41,33 @@ class UIRegion:
 
 
 @dataclass
+class UIStateTransition:
+    """클릭/스크롤 후 UI가 어떻게 변하는지 기록"""
+    trigger: str          # 트리거 액션 (예: "카테고리 'CPU' 클릭")
+    from_state: str       # 이전 상태 (예: "카테고리 미선택, 가운데 빈 화면")
+    to_state: str         # 이후 상태 (예: "CPU 제품 목록 23개 표시, 광고 2개 상단")
+    key_finding: str      # 핵심 발견 (예: "검색창이 가운데 상단에 새로 나타남")
+
+
+@dataclass
+class ScrollArea:
+    """스크롤 가능한 영역 정보"""
+    name: str             # 영역명 (예: "제품 목록")
+    location: str         # 위치 (예: "가운데")
+    axis: str             # "세로" or "가로"
+    what_appears: str     # 스크롤 시 나타나는 내용
+
+
+@dataclass
 class DanawaKnowledge:
     url: str = ""
     regions: list[UIRegion] = field(default_factory=list)
     workflow: list[str] = field(default_factory=list)
     quirks: list[str] = field(default_factory=list)
-    # LLM 탐색으로 발견된 추가 사실 (base 지식 미포함)
     discovered_facts: list[str] = field(default_factory=list)
+    # 능동 탐색으로 발견된 상태 전이 정보
+    state_transitions: list[UIStateTransition] = field(default_factory=list)
+    scroll_areas: list[ScrollArea] = field(default_factory=list)
 
     def to_context(self) -> str:
         """executor 시스템 프롬프트에 주입할 텍스트 블록"""
@@ -59,6 +79,20 @@ class DanawaKnowledge:
             for el in r.elements:
                 mark = "✓" if el.verified else "~"
                 lines.append(f"  {mark} {el.name}: `{el.selector}` — {el.description}")
+
+        if self.state_transitions:
+            lines.append("\n### 클릭/액션 시 상태 전이 (State Transitions)")
+            for t in self.state_transitions:
+                lines.append(f"  [{t.trigger}]")
+                lines.append(f"    Before: {t.from_state}")
+                lines.append(f"    After:  {t.to_state}")
+                if t.key_finding:
+                    lines.append(f"    ★ {t.key_finding}")
+
+        if self.scroll_areas:
+            lines.append("\n### 스크롤 영역 (Scroll Areas)")
+            for s in self.scroll_areas:
+                lines.append(f"  {s.name} ({s.location}, {s.axis}): {s.what_appears}")
 
         if self.workflow:
             lines.append("\n### 부품 추가 워크플로우")
@@ -100,6 +134,24 @@ class DanawaKnowledge:
             "workflow": self.workflow,
             "quirks": self.quirks,
             "discovered_facts": self.discovered_facts,
+            "state_transitions": [
+                {
+                    "trigger": t.trigger,
+                    "from_state": t.from_state,
+                    "to_state": t.to_state,
+                    "key_finding": t.key_finding,
+                }
+                for t in self.state_transitions
+            ],
+            "scroll_areas": [
+                {
+                    "name": s.name,
+                    "location": s.location,
+                    "axis": s.axis,
+                    "what_appears": s.what_appears,
+                }
+                for s in self.scroll_areas
+            ],
         }
 
     @classmethod
@@ -121,12 +173,32 @@ class DanawaKnowledge:
                 description=r["description"],
                 elements=elements,
             ))
+        state_transitions = [
+            UIStateTransition(
+                trigger=t["trigger"],
+                from_state=t["from_state"],
+                to_state=t["to_state"],
+                key_finding=t.get("key_finding", ""),
+            )
+            for t in d.get("state_transitions", [])
+        ]
+        scroll_areas = [
+            ScrollArea(
+                name=s["name"],
+                location=s["location"],
+                axis=s.get("axis", "세로"),
+                what_appears=s["what_appears"],
+            )
+            for s in d.get("scroll_areas", [])
+        ]
         return cls(
             url=d.get("url", ""),
             regions=regions,
             workflow=d.get("workflow", []),
             quirks=d.get("quirks", []),
             discovered_facts=d.get("discovered_facts", []),
+            state_transitions=state_transitions,
+            scroll_areas=scroll_areas,
         )
 
 
@@ -223,3 +295,38 @@ def load_knowledge(path: Path = CACHE_PATH) -> DanawaKnowledge:
         with open(path, encoding="utf-8") as f:
             return DanawaKnowledge.from_dict(json.load(f))
     return BASE_KNOWLEDGE
+
+
+def _merge(base: DanawaKnowledge, discovered: DanawaKnowledge) -> DanawaKnowledge:
+    """
+    BASE_KNOWLEDGE (검증된 사실 우선) + LLM 탐색 결과 병합.
+    - 영역: base 영역 유지, discovered에 새 영역만 추가
+    - 워크플로우: base 우선
+    - state_transitions / scroll_areas: discovered 것 추가 (base에 없음)
+    - quirks / discovered_facts: 합치기 (중복 제거)
+    """
+    base_region_names = {r.name for r in base.regions}
+    merged_regions = list(base.regions)
+    for r in discovered.regions:
+        if r.name not in base_region_names:
+            merged_regions.append(r)
+
+    workflow = base.workflow if base.workflow else discovered.workflow
+
+    seen_quirks = set(base.quirks)
+    quirks = list(base.quirks)
+    for q in discovered.quirks:
+        if q not in seen_quirks:
+            quirks.append(q)
+            seen_quirks.add(q)
+
+    # state_transitions, scroll_areas는 discovered에서만 올 수 있음 (base에 없음)
+    return DanawaKnowledge(
+        url=discovered.url or base.url,
+        regions=merged_regions,
+        workflow=workflow,
+        quirks=quirks,
+        discovered_facts=discovered.discovered_facts,
+        state_transitions=base.state_transitions + discovered.state_transitions,
+        scroll_areas=base.scroll_areas + discovered.scroll_areas,
+    )
