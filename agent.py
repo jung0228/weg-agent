@@ -13,7 +13,7 @@ import openai
 from playwright.async_api import Page
 
 from memory import WorkingMemory
-from planner import create_plan, replan
+from planner import create_plan, replan, PlanStep
 from executor import Executor, ExecStep
 
 
@@ -61,10 +61,12 @@ class WebAgent:
 
         # ── 2. 계획 수립 (1회 LLM) ───────────────────────────────
         print("[Planner] 계획 수립 중...")
-        steps = create_plan(task, self.client, MODEL)
+        steps: list[PlanStep] = create_plan(task, budget, self.client, MODEL)
         print(f"[Planner] {len(steps)}단계 계획:")
         for i, s in enumerate(steps, 1):
-            print(f"  {i}. {s}")
+            budget_str = f"  (최대 {s.budget:,}원)" if s.budget else ""
+            hint_str = f"  → {s.hint}" if s.hint else ""
+            print(f"  {i}. {s.name}{budget_str}{hint_str}")
 
         # ── 3. 단계별 실행 ────────────────────────────────────────
         executor = Executor(self.client, MODEL)
@@ -72,7 +74,8 @@ class WebAgent:
 
         i = 0
         while i < len(steps):
-            goal = steps[i]
+            plan_step = steps[i]
+            goal = _build_goal(plan_step)
             print(f"\n[Step {i+1}/{len(steps)}] {goal}")
             print("-" * 50)
 
@@ -81,7 +84,7 @@ class WebAgent:
             summary = step_result.summary
 
             if step_result.success:
-                memory.completed_steps.append(f"{goal} → {summary[:60]}")
+                memory.completed_steps.append(f"{plan_step.name} → {summary[:60]}")
                 print(f"  ✓ 완료: {summary[:80]}")
             else:
                 print(f"  ✗ 실패: {summary}")
@@ -90,8 +93,9 @@ class WebAgent:
                     print(f"  [Replanner] 남은 {len(remaining_original)}단계 재수립 중...")
                     new_remaining = replan(
                         task=task,
+                        budget=budget,
                         completed=memory.completed_steps,
-                        failed_step=goal,
+                        failed_step=plan_step.name,
                         memory_context=memory.to_context(),
                         client=self.client,
                         model=MODEL,
@@ -127,6 +131,16 @@ class WebAgent:
 
 
 # ── 헬퍼 ──────────────────────────────────────────────────────────
+
+def _build_goal(step: PlanStep) -> str:
+    """PlanStep → executor에 전달할 goal 문자열 생성."""
+    parts = [step.name]
+    if step.budget:
+        parts.append(f"최대 {step.budget:,}원 이내로 선택")
+    if step.hint:
+        parts.append(f"추천 검색어: {step.hint}")
+    return " — ".join(parts)
+
 
 def _extract_budget(task: str) -> int:
     """태스크 텍스트에서 예산 숫자 추출 (원 단위)"""
