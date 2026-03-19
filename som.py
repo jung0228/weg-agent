@@ -4,9 +4,14 @@ DOM 수집 없이 스크린샷만 캡처해서 LLM에게 전달한다.
 LLM이 스크린샷을 보고 픽셀 좌표를 직접 추론한다.
 """
 import base64
+import os
 from dataclasses import dataclass
 
 from playwright.async_api import Page
+
+# 디버그 스크린샷 저장 디렉토리 (환경변수로 켜기: SOM_DEBUG=1)
+_DEBUG_DIR = os.environ.get("SOM_DEBUG_DIR", "")
+_debug_counter = 0
 
 
 @dataclass
@@ -42,6 +47,15 @@ async def perceive(page: Page) -> ScreenState:
             img.save(buf, format="PNG")
             raw_bytes = buf.getvalue()
     screenshot_b64 = base64.standard_b64encode(raw_bytes).decode()
+
+    # 디버그 모드: 스크린샷을 파일로 저장
+    if _DEBUG_DIR:
+        global _debug_counter
+        _debug_counter += 1
+        os.makedirs(_DEBUG_DIR, exist_ok=True)
+        out_path = os.path.join(_DEBUG_DIR, f"step_{_debug_counter:03d}.png")
+        with open(out_path, "wb") as f:
+            f.write(raw_bytes)
 
     return ScreenState(
         screenshot_b64=screenshot_b64,

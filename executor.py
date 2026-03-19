@@ -267,6 +267,15 @@ class Executor:
                 same_action_count += 1
                 if same_action_count >= 3:
                     print(f"    ⚠ 동일 액션 {same_action_count}회 반복")
+                # add_product 성공 후 빈 Action 2회 이상 반복 → 강제 자동 완료
+                if not action_raw.strip() and last_add_product_obs and same_action_count >= 2:
+                    auto_summary = f"자동완료(DONE루프탈출) | {last_add_product_obs}"
+                    part = try_parse_part(auto_summary)
+                    if part:
+                        cat, name, price = part
+                        memory.add_part(cat, name, price)
+                        print(f"    → [자동완료] 부품 추가: {cat} / {name} / {price:,}원")
+                    return StepResult(success=True, summary=auto_summary, steps=exec_steps)
             else:
                 same_action_count = 0
             prev_action_raw = action_raw
