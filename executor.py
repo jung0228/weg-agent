@@ -45,7 +45,9 @@ TOOL remove_part "메인보드"         ← 오른쪽 패널에서 해당 카테
 TOOL get_cart                       ← 현재 오른쪽 패널 견적 현황 확인
 
 ### 2. 좌표 기반 (TOOL로 처리 안 되는 경우)
-CLICK (x, y)
+CLICK (x, y)          ← 픽셀 좌표 직접 지정
+CLICK [N]             ← SOM 번호 지정 (스크린샷 배지 참조 — 권장)
+TYPE_ENTER [N] "텍스트"  ← SOM 번호로 입력창 선택 후 텍스트 입력 + Enter
 TYPE_ENTER (x, y) "텍스트"
 SCROLL DOWN  /  SCROLL UP
 GOTO https://...
@@ -233,7 +235,11 @@ class Executor:
                     )
             else:
                 try:
-                    action = parse_action(action_raw)
+                    # SOM 번호 [N] → 픽셀 좌표 변환 (SOM_MODE=1일 때만 실질 동작)
+                    resolved_raw = _resolve_som_refs(action_raw, state.elements_by_id)
+                    if resolved_raw != action_raw:
+                        print(f"      SOM: {action_raw!r} → {resolved_raw!r}")
+                    action = parse_action(resolved_raw)
                     if action.type == "tool":
                         # TOOL 명령 → tools.py 디스패처로 위임
                         observation = await execute_tool(action.value or "", action.tool_args or "", page)
@@ -314,6 +320,61 @@ class Executor:
 
 
 # ── 헬퍼 ──────────────────────────────────────────────────────────
+
+def _resolve_som_refs(action_raw: str, elements_by_id: dict) -> str:
+    """
+    SOM 번호 참조를 픽셀 좌표로 변환한다.
+
+    예:
+      "CLICK [5]"              → "CLICK (640, 320)"
+      "TYPE_ENTER [3] \"텍스트\"" → "TYPE_ENTER (200, 150) \"텍스트\""
+
+    elements_by_id가 비어있거나 해당 번호가 없으면 원본 반환.
+    """
+    if not elements_by_id:
+        return action_raw
+
+    # CLICK [N]
+    import re as _re
+    def _replace_click(m):
+        n = int(m.group(1))
+        el = elements_by_id.get(n)
+        if el:
+            return f"CLICK ({el['x']}, {el['y']})"
+        return m.group(0)  # 번호 없으면 원본 유지
+
+    action_raw = _re.sub(r"CLICK\s*\[(\d+)\]", _replace_click, action_raw, flags=_re.I)
+
+    # TYPE_ENTER [N] "text"
+    def _replace_type_enter(m):
+        n = int(m.group(1))
+        text = m.group(2)
+        el = elements_by_id.get(n)
+        if el:
+            return f'TYPE_ENTER ({el["x"]}, {el["y"]}) "{text}"'
+        return m.group(0)
+
+    action_raw = _re.sub(
+        r'TYPE_ENTER\s*\[(\d+)\]\s*"([^"]*)"',
+        _replace_type_enter, action_raw, flags=_re.I
+    )
+
+    # TYPE [N] "text"
+    def _replace_type(m):
+        n = int(m.group(1))
+        text = m.group(2)
+        el = elements_by_id.get(n)
+        if el:
+            return f'TYPE ({el["x"]}, {el["y"]}) "{text}"'
+        return m.group(0)
+
+    action_raw = _re.sub(
+        r'TYPE\s*\[(\d+)\]\s*"([^"]*)"',
+        _replace_type, action_raw, flags=_re.I
+    )
+
+    return action_raw
+
 
 def _build_message(state: ScreenState, step: int) -> list[dict]:
     """스크린샷 + 페이지 정보를 LLM 메시지로 조립한다."""

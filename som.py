@@ -27,19 +27,65 @@ _JS_GET_INTERACTIVE = """
     const vw = window.innerWidth;
     const vh = window.innerHeight;
 
-    // ── 1. 제외할 조상 영역 (글로벌 헤더, 배너, 광고) ───────────
-    // 실측: 글로벌 네비는 .main-header 내부, 배너는 .main_visual 등
+    // ── 1. ARIA/시맨틱 role 계산 ─────────────────────────────────
+    // class 이름 대신 WAI-ARIA 표준 role 기반 — 어느 사이트에서도 동작
+    function getRole(el) {
+        const tag  = el.tagName.toLowerCase();
+        const type = (el.getAttribute('type') || '').toLowerCase();
+
+        // 명시적 ARIA role 우선
+        const aria = el.getAttribute('role');
+        if (aria && aria !== 'none' && aria !== 'presentation') return aria;
+
+        // HTML 시맨틱 태그 → 암묵적 role (WAI-ARIA 1.2 매핑)
+        if (tag === 'button' || type === 'button' || type === 'submit' || type === 'reset')
+            return 'button';
+        if (tag === 'a' && el.hasAttribute('href'))
+            return 'link';
+        if (type === 'checkbox')
+            return 'checkbox';
+        if (type === 'radio')
+            return 'radio';
+        if (tag === 'select')
+            return 'combobox';
+        if (type === 'text' || type === 'search' || type === 'email' ||
+            type === 'url'  || type === 'number' || tag === 'textarea')
+            return 'textbox';
+
+        // label → 연결된 control의 role 상속
+        // 예: <label class="item_checkbox"> → <input type="checkbox"> → 'checkbox'
+        // 이 방식으로 class명 없이도 다나와 필터 레이블을 정확히 잡을 수 있음
+        if (tag === 'label') {
+            const ctrl = el.control ||
+                         document.getElementById(el.getAttribute('for') || '');
+            if (ctrl) {
+                const ctype = (ctrl.getAttribute('type') || '').toLowerCase();
+                if (ctype === 'checkbox') return 'checkbox';
+                if (ctype === 'radio')    return 'radio';
+                return 'textbox';
+            }
+        }
+
+        // onclick / tabIndex 있으면 button으로 취급
+        if (el.hasAttribute('onclick') || el.getAttribute('tabindex') === '0')
+            return 'button';
+
+        return null;  // 인터랙티브하지 않음
+    }
+
+    // ── 2. 제외할 조상 영역 (nav/배너/광고 — 사이트별 블랙리스트) ─
+    // 이 부분만 사이트 특화. role 기반 탐지는 범용.
     const BLOCK_ANCESTOR = [
-        '.main-header', '.main-header__wrap',    // 글로벌 네비게이션
-        '.main-header__search', '.search__box',  // 글로벌 검색 바 (별도 명시)
-        '.main_visual', '.visual_area',          // 히어로 배너
-        '.swiper-wrapper', '.slide_wrap',        // 슬라이더
-        '.banner_area', '.banner_box',           // 배너 박스
-        '.smart_banner',                         // 스마트 배너
-        '.main-wing__fixed', '.main-wing',       // 하단 플로팅 버튼
-        '.estimate_ad', '.estimate_widget',      // 견적 광고 위젯
-        '.ad_area', '[id*="Banner"]',            // 광고 영역
-        '.util_area',                            // 유틸 버튼
+        '.main-header', '.main-header__wrap',
+        '.main-header__search', '.search__box',
+        '.main_visual', '.visual_area',
+        '.swiper-wrapper', '.swiper-slide', '.slide_wrap',
+        '.banner_area', '.banner_box', '.smart_banner',
+        '.text_img_view .smart_banner', '[class*="visual"]',
+        '.main-wing__fixed', '.main-wing',
+        '.estimate_ad', '.estimate_widget',
+        '.ad_area', '[id*="Banner"]',
+        '.util_area',
     ];
 
     function isBlocked(el) {
@@ -49,7 +95,7 @@ _JS_GET_INTERACTIVE = """
         return false;
     }
 
-    // ── 2. 가시성 체크 ────────────────────────────────────────────
+    // ── 3. 가시성 체크 ────────────────────────────────────────────
     function isVisible(el, rect) {
         if (rect.width < 6 || rect.height < 6) return false;
         if (rect.bottom < 0 || rect.top > vh) return false;
@@ -60,81 +106,89 @@ _JS_GET_INTERACTIVE = """
         return true;
     }
 
-    // ── 3. 텍스트 추출 ───────────────────────────────────────────
-    function getText(el) {
+    // ── 4. 접근 가능한 이름(Accessible Name) 계산 ────────────────
+    // aria-label > aria-labelledby > innerText > value > title > placeholder
+    function getAccessibleName(el) {
+        const ariaLabel = el.getAttribute('aria-label');
+        if (ariaLabel) return ariaLabel.trim().slice(0, 40);
+
+        const labelledBy = el.getAttribute('aria-labelledby');
+        if (labelledBy) {
+            const ref = document.getElementById(labelledBy);
+            if (ref) return (ref.innerText || '').trim().slice(0, 40);
+        }
+
         return (
-            el.innerText ||
-            el.value ||
-            el.getAttribute('aria-label') ||
-            el.getAttribute('title') || ''
+            el.innerText     ||
+            el.value         ||
+            el.getAttribute('title')       ||
+            el.getAttribute('placeholder') || ''
         ).trim().replace(/\\s+/g, ' ').slice(0, 40);
     }
 
-    // ── 4. 우선순위별 타겟 셀렉터 (실측 기반) ────────────────────
-    // kind: 'button' | 'link' | 'checkbox' | 'input' | 'select'
-    const TARGETS = [
-        // ① 카테고리 내 검색 입력창 (상품명 검색) — 글로벌 검색 바 제외 위해 "상품명"으로 한정
-        { sel: 'input[placeholder*="상품명"]', kind: 'input' },
-        // ② 필터 체크박스 레이블 — 실측: label.item_checkbox
-        { sel: 'label.item_checkbox', kind: 'checkbox' },
-        // ③ 정렬 버튼 — 실측: #estimateMainProduct .category_list li a
-        { sel: '#estimateMainProduct .category_list li a', kind: 'button' },
-        // ④ 담기 버튼 — 실측: a.btn_choice2.wishAction
-        { sel: 'a.btn_choice2, a.wishAction', kind: 'button' },
-        // ⑤ 견적 패널 버튼 (삭제 X 등)
-        { sel: '.estimate_list button, .estimate_section button', kind: 'button' },
-        // ⑥ 카테고리 탭 (CPU / 메인보드 등) — 견적 메인 영역 내
-        { sel: '#estimateMainProduct .tab a, #estimateMainProduct li.tab_item a', kind: 'link' },
-        // ⑦ 일반 button (소형 — 배너 사이즈 초과 제외)
-        { sel: 'button', kind: 'button' },
-        // ⑧ 견적 패널 내 링크
-        { sel: '.estimate_section a, .estimate_list a', kind: 'link' },
-    ];
-
+    // ── 5. 전체 DOM 순회 — role 기반 수집 ────────────────────────
     const results = [];
-    const seen = new Set();
+    const seen    = new Set();
     let idx = 1;
     const MAX = 50;
 
-    for (const { sel, kind } of TARGETS) {
-        let els;
-        try { els = document.querySelectorAll(sel); }
-        catch(e) { continue; }
+    // role → kind 매핑
+    const ROLE_KIND = {
+        button:   'button',
+        link:     'link',
+        checkbox: 'checkbox',
+        radio:    'checkbox',
+        textbox:  'input',
+        combobox: 'select',
+        searchbox:'input',
+        menuitem: 'button',
+        option:   'button',
+    };
 
-        for (const el of els) {
-            if (seen.has(el)) continue;
-            seen.add(el);
+    // 후보 요소: 흔한 인터랙티브 태그만 먼저 훑어서 성능 확보
+    const CANDIDATE_SEL = 'a,button,input,select,textarea,label,[role],[onclick],[tabindex="0"]';
+    const candidates = document.querySelectorAll(CANDIDATE_SEL);
 
-            if (isBlocked(el)) continue;
+    for (const el of candidates) {
+        if (seen.has(el)) continue;
+        seen.add(el);
 
-            const rect = el.getBoundingClientRect();
-            if (!isVisible(el, rect)) continue;
+        const role = getRole(el);
+        if (!role) continue;
 
-            // 배너/광고성 대형 요소 제외 (너비 > 500 또는 높이 > 120)
-            if (rect.width > 500 || rect.height > 120) continue;
+        const kind = ROLE_KIND[role];
+        if (!kind) continue;
 
-            const text = getText(el);
+        // hidden input(checkbox)은 시각적으로 없음 → 연결된 label이 대신 잡힘
+        if (el.tagName.toLowerCase() === 'input' && el.type === 'checkbox') continue;
 
-            // 텍스트 없는 요소 스킵 (이미지 링크, 빈 레이블, 장식용)
-            if (!text) continue;
+        if (isBlocked(el)) continue;
 
-            const cx = Math.round(rect.left + rect.width  / 2);
-            const cy = Math.round(rect.top  + rect.height / 2);
+        const rect = el.getBoundingClientRect();
+        if (!isVisible(el, rect)) continue;
 
-            results.push({
-                id:     idx++,
-                kind,
-                text,
-                x:      cx,
-                y:      cy,
-                left:   Math.round(rect.left),
-                top:    Math.round(rect.top),
-                right:  Math.round(rect.right),
-                bottom: Math.round(rect.bottom),
-            });
+        // 배너/광고성 대형 요소 제외
+        if (rect.width > 500 || rect.height > 120) continue;
 
-            if (idx > MAX) break;
-        }
+        const name = getAccessibleName(el);
+        if (!name) continue;  // 이름 없는 요소 스킵
+
+        const cx = Math.round(rect.left + rect.width  / 2);
+        const cy = Math.round(rect.top  + rect.height / 2);
+
+        results.push({
+            id:     idx++,
+            kind,
+            text:   name,
+            role,
+            x:      cx,
+            y:      cy,
+            left:   Math.round(rect.left),
+            top:    Math.round(rect.top),
+            right:  Math.round(rect.right),
+            bottom: Math.round(rect.bottom),
+        });
+
         if (idx > MAX) break;
     }
     return results;
@@ -146,12 +200,18 @@ _JS_GET_INTERACTIVE = """
 
 @dataclass
 class ScreenState:
-    screenshot_b64: str   # base64 PNG (SOM_MODE=1이면 오버레이 포함)
+    screenshot_b64: str        # base64 PNG (SOM_MODE=1이면 오버레이 포함)
     page_title: str
     page_url: str
-    width: int            # 뷰포트 픽셀 너비
-    height: int           # 뷰포트 픽셀 높이
-    element_map: str = "" # SOM 요소 목록 텍스트 (SOM_MODE=0이면 빈 문자열)
+    width: int                 # 뷰포트 픽셀 너비
+    height: int                # 뷰포트 픽셀 높이
+    element_map: str = ""      # SOM 요소 목록 텍스트 (SOM_MODE=0이면 빈 문자열)
+    # id → {x, y, kind, text} 매핑 — executor에서 Click [N] 해석에 사용
+    elements_by_id: dict = None  # type: dict[int, dict]
+
+    def __post_init__(self):
+        if self.elements_by_id is None:
+            self.elements_by_id = {}
 
 
 # ── SOM 오버레이 드로잉 ────────────────────────────────────────────
@@ -269,7 +329,8 @@ async def perceive(page: Page) -> ScreenState:
             img.save(buf, format="PNG")
             raw_bytes = buf.getvalue()
 
-    element_map = ""
+    element_map    = ""
+    elements_by_id: dict = {}
 
     # ② SOM 오버레이 (SOM_MODE=1일 때만)
     if _SOM_MODE:
@@ -281,6 +342,12 @@ async def perceive(page: Page) -> ScreenState:
         if elements:
             raw_bytes   = _draw_som_overlay(raw_bytes, elements)
             element_map = _build_element_map(elements)
+            # id → 좌표 딕셔너리 구성 (executor에서 Click [N] 해석용)
+            elements_by_id = {
+                el["id"]: {"x": el["x"], "y": el["y"],
+                           "kind": el["kind"], "text": el["text"]}
+                for el in elements
+            }
 
     screenshot_b64 = base64.standard_b64encode(raw_bytes).decode()
 
@@ -300,4 +367,5 @@ async def perceive(page: Page) -> ScreenState:
         width=width,
         height=height,
         element_map=element_map,
+        elements_by_id=elements_by_id,
     )
