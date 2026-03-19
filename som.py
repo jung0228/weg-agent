@@ -83,6 +83,9 @@ _JS_GET_INTERACTIVE = """
         '.banner_area', '.banner_box', '.smart_banner',
         '.text_img_view .smart_banner', '[class*="visual"]',
         '.main-wing__fixed', '.main-wing',
+        '.estimate_smart_area',              // 배너 슬라이더 + 광고 영역 (다나와 커스텀)
+        '.swipe-control-hover', '.control-panel',  // 슬라이더 prev/next/pause 버튼
+        '.smart_area_left', '.smart_area_right',
         '.estimate_ad', '.estimate_widget',
         '.ad_area', '[id*="Banner"]',
         '.util_area',
