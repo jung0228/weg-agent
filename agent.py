@@ -49,7 +49,7 @@ class WebAgent:
         )
         self.explore_ui = explore_ui
 
-    async def run(self, task: str, page: Page) -> AgentResult:
+    async def run(self, task: str, page: Page, enforce_budget: bool = True) -> AgentResult:
         result = AgentResult(task=task)
 
         print(f"\n{'='*60}")
@@ -82,7 +82,7 @@ class WebAgent:
         i = 0
         while i < len(steps):
             plan_step = steps[i]
-            goal = _build_goal(plan_step)
+            goal = _build_goal(plan_step, enforce_budget=enforce_budget)
             print(f"\n[Step {i+1}/{len(steps)}] {goal}")
             print("-" * 50)
 
@@ -170,13 +170,19 @@ async def _load_or_explore_impl(self, page: Page) -> DanawaKnowledge:
 WebAgent._load_or_explore_knowledge = _load_or_explore_impl  # type: ignore
 
 
-def _build_goal(step: PlanStep) -> str:
+def _build_goal(step: PlanStep, enforce_budget: bool = True) -> str:
     """PlanStep → executor에 전달할 goal 문자열 생성."""
     parts = [step.name]
-    if step.budget:
+    if step.budget and enforce_budget:
         parts.append(f"최대 {step.budget:,}원 이내로 선택")
+    elif not enforce_budget:
+        parts.append("단계별 예산 제한 없음 — 가장 저렴한 제품 선택")
     if step.hint:
-        parts.append(f"추천 검색어: {step.hint}")
+        if enforce_budget:
+            parts.append(f"필수 검색어: {step.hint} (이 모델만 검색할 것, 다른 모델로 변경 금지)")
+        else:
+            # 예산 제한 없는 경우: 카테고리+필터 방식 우선, 검색은 참고용
+            parts.append(f"참고 모델/규격: {step.hint} (방법 A 카테고리+필터 방식 우선, 검색 방식도 가능)")
     return " — ".join(parts)
 
 

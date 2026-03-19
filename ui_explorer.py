@@ -53,7 +53,7 @@ from knowledge import (
 
 load_dotenv()
 
-DANAWA_ESTIMATE_URL = "https://prod.danawa.com/info/?pcode=22166839"
+DANAWA_ESTIMATE_URL = "https://shop.danawa.com/virtualestimate/?controller=estimateMain&methods=index&marketPlaceSeq=16"
 MODEL = "gemini-3-flash-preview"
 LETSUR_BASE_URL = "https://gateway.letsur.ai/v1"
 
@@ -141,18 +141,19 @@ _JS_DOM_OVERVIEW = """
                     return {top: Math.round(r.top), left: Math.round(r.left),
                             w: Math.round(r.width), h: Math.round(r.height)}; })()
             })),
-        // 카테고리 버튼
+        // 카테고리 버튼 — 실제 DOM: dd.category_XXX.pd_item > a.pd_item_title
         category_btns: Array.from(document.querySelectorAll(
-            '[class*="cate"] a, [class*="category"] a, [onclick*="selectCate"]'
-        )).slice(0, 10).map(el => ({
-            text: el.textContent.trim().slice(0, 20),
-            cls: el.className.slice(0, 60),
-            href: (el.getAttribute('href') || '').slice(0, 60),
+            'dd[class*="pd_item"] a.pd_item_title'
+        )).slice(0, 12).map(el => ({
+            text: el.closest('dd')?.textContent?.trim()?.split('\\n')[0]?.trim()?.slice(0, 20) || el.textContent.trim().slice(0, 20),
+            cls: el.closest('dd')?.className?.slice(0, 60),
             onclick: (el.getAttribute('onclick') || '').slice(0, 80),
             bbox: (() => { const r = el.getBoundingClientRect();
                 return {x: Math.round(r.left + r.width/2),
                         y: Math.round(r.top + r.height/2)}; })()
         })),
+        // 검색창 (실제: #searchProduct)
+        search_input_id: document.querySelector('#searchProduct') ? '#searchProduct' : null,
         // 제품 행
         product_rows_total: count('tr[class*="productList"]'),
         product_rows_ad: count('tr.recom_area'),
@@ -219,18 +220,28 @@ async def phase1_overview(page: Page, client: openai.OpenAI) -> dict:
 
 _JS_SELECT_CATEGORY = """
 (categoryName) => {
-    // 카테고리 버튼 텍스트 매칭
-    const allLinks = Array.from(document.querySelectorAll(
-        '[class*="cate"] a, [class*="category"] a, [onclick*="selectCate"], ' +
-        '[class*="build"] a, [class*="spec"] a'
-    ));
-    const target = allLinks.find(a =>
-        a.textContent.trim().includes(categoryName) ||
-        (a.getAttribute('onclick') || '').includes(categoryName)
-    );
-    if (!target) return {success: false, tried: allLinks.map(a => a.textContent.trim()).slice(0, 10)};
-    target.click();
-    return {success: true, text: target.textContent.trim(), cls: target.className};
+    // 실제 DOM: dd.category_XXX.pd_item > a.pd_item_title
+    // onclick="category(ID,2)" 형태
+    const NAME_TO_ID = {
+        'CPU': 873, '쿨러': 887, '쿨러/튜닝': 887,
+        '메인보드': 875, '메모리': 874,
+        '그래픽카드': 876, 'SSD': 32617,
+        'HDD': 877, '케이스': 879, '파워': 880,
+    };
+    const catId = NAME_TO_ID[categoryName];
+    if (catId) {
+        if (typeof category === 'function') {
+            category(catId, 2);
+            return {success: true, text: categoryName, method: 'js-func'};
+        }
+        const btn = document.querySelector(`dd.category_${catId} a.pd_item_title`);
+        if (btn) { btn.click(); return {success: true, text: btn.textContent.trim(), method: 'dom-click'}; }
+    }
+    // fallback: 텍스트 매칭
+    const links = Array.from(document.querySelectorAll('dd[class*="pd_item"] a'));
+    const target = links.find(a => a.closest('dd')?.textContent?.trim().startsWith(categoryName));
+    if (target) { target.click(); return {success: true, text: categoryName, method: 'text-match'}; }
+    return {success: false, tried: links.map(a => a.textContent.trim()).slice(0, 10)};
 }
 """
 
@@ -344,13 +355,15 @@ async def phase3_scroll(page: Page, client: openai.OpenAI) -> list[ScrollArea]:
     before_b64 = await _screenshot_b64(page)
     product_scroll = await page.evaluate(_JS_SCROLL_CHECK, "")
 
-    # 페이지 메인 스크롤
-    await page.mouse.wheel(640, 500, delta_x=0, delta_y=600)
+    # 페이지 메인 스크롤 (move → wheel)
+    await page.mouse.move(640, 500)
+    await page.mouse.wheel(0, 600)
     await page.wait_for_timeout(800)
     after_b64_scroll1 = await _screenshot_b64(page)
 
     # 위로 복귀
-    await page.mouse.wheel(640, 500, delta_x=0, delta_y=-600)
+    await page.mouse.move(640, 500)
+    await page.mouse.wheel(0, -600)
     await page.wait_for_timeout(500)
 
     # 3-2. 오른쪽 패널 스크롤 가능 여부
@@ -381,10 +394,12 @@ async def phase3_scroll(page: Page, client: openai.OpenAI) -> list[ScrollArea]:
     after_b64_right = None
     if right_scroll.get("scrollable") and right_scroll.get("bbox"):
         bx, by = right_scroll["bbox"]["x"], right_scroll["bbox"]["y"]
-        await page.mouse.wheel(bx, by, delta_x=0, delta_y=400)
+        await page.mouse.move(bx, by)
+        await page.mouse.wheel(0, 400)
         await page.wait_for_timeout(800)
         after_b64_right = await _screenshot_b64(page)
-        await page.mouse.wheel(bx, by, delta_x=0, delta_y=-400)
+        await page.mouse.move(bx, by)
+        await page.mouse.wheel(0, -400)
         await page.wait_for_timeout(500)
 
     # 3-3. LLM 분석

@@ -23,7 +23,7 @@ from eval import evaluate, print_eval
 load_dotenv()
 
 
-async def run_task(task, headless: bool = False, run_eval: bool = True, explore_ui: bool = False):
+async def run_task(task, headless: bool = False, run_eval: bool = True, explore_ui: bool = False, enforce_budget: bool = True):
     api_key = os.environ.get("LETSUR_API_KEY")
     if not api_key:
         raise RuntimeError("LETSUR_API_KEY 환경변수가 없습니다. .env 파일을 확인하세요.")
@@ -50,7 +50,7 @@ async def run_task(task, headless: bool = False, run_eval: bool = True, explore_
         await page.goto(task.start_url, wait_until="domcontentloaded", timeout=20000)
 
         # 에이전트 실행
-        result = await agent.run(task.prompt(), page)
+        result = await agent.run(task.prompt(), page, enforce_budget=enforce_budget)
 
         await browser.close()
 
@@ -106,13 +106,16 @@ async def main():
     parser.add_argument("--no-eval", action="store_true", help="LLM-as-Judge 평가 생략")
     parser.add_argument("--explore-ui", action="store_true",
                         help="실행 전 다나와 UI 탐색 → knowledge/ 캐싱 (첫 실행 또는 UI 변경 시 사용)")
+    parser.add_argument("--no-step-budget", action="store_true",
+                        help="단계별 예산 제한 없이 실행 (가장 저렴한 제품 자동 선택)")
     args = parser.parse_args()
 
     tasks = [TASKS_BY_ID[args.task]] if args.task else TASKS
 
     for task in tasks:
         await run_task(task, headless=args.headless, run_eval=not args.no_eval,
-                       explore_ui=args.explore_ui)
+                       explore_ui=args.explore_ui,
+                       enforce_budget=not args.no_step_budget)
         print(f"\n{'─'*60}\n")
 
 

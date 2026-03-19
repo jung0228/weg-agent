@@ -205,47 +205,59 @@ class DanawaKnowledge:
 # ── 정적 기본 지식 (DOM 분석으로 검증된 사실) ────────────────────────
 
 BASE_KNOWLEDGE = DanawaKnowledge(
-    url="https://prod.danawa.com/info/?pcode=...",
+    url="https://shop.danawa.com/virtualestimate/?controller=estimateMain&methods=index&marketPlaceSeq=16",
     regions=[
         UIRegion(
             name="PC 주요구성 패널",
-            location="오른쪽",
-            description="카테고리 선택 버튼 + 현재 담긴 부품 목록 표시",
+            location="오른쪽 (x≈1148, 스크롤 필요)",
+            description="dd.category_XXX.pd_item 버튼 목록 — 클릭 시 가운데에 해당 카테고리 제품 표시. 부품 담기면 버튼 아래 제품명 표시",
             elements=[
                 UIElement(
                     "카테고리 버튼",
-                    "a[onclick*='selectCategory'], .build_category a",
-                    "클릭 시 가운데 영역에 해당 카테고리 제품 표시",
-                    verified=False,
+                    "dd[class*='category_'].pd_item > a.pd_item_title",
+                    "onclick='category(ID,2)' — TOOL select_category 사용 (ID 매핑 내장)",
+                    verified=True,
                 ),
                 UIElement(
-                    "담긴 부품 행",
-                    ".choice_item, tr[id*='choice']",
-                    "현재 견적에 추가된 부품 목록",
-                    verified=False,
+                    "카테고리 ID 매핑",
+                    "JS: category(ID, 2)",
+                    "CPU=873, 쿨러/튜닝=887, 메인보드=875, 메모리=874, 그래픽카드=876, SSD=32617, HDD=877, 케이스=879, 파워=880",
+                    verified=True,
                 ),
                 UIElement(
-                    "부품 삭제 버튼",
-                    "[class*='del'], [class*='remove']",
-                    "담긴 부품 삭제 — 반드시 TOOL remove_part 사용 (좌표 클릭 실패)",
+                    "현재 선택된 카테고리",
+                    "dd[class*='category_'].select.pd_item",
+                    "선택됨 클래스: .select 추가됨",
+                    verified=True,
+                ),
+                UIElement(
+                    "견적카트 패널",
+                    ".estimate_folder_wrap",
+                    "담긴 부품 목록 컨테이너, 스크롤 가능",
                     verified=True,
                 ),
             ],
         ),
         UIRegion(
             name="제품 목록 영역",
-            location="가운데",
-            description="선택 카테고리 제품 검색·필터·목록 표시",
+            location="가운데 (x≈100~950)",
+            description="선택 카테고리 제품 검색·필터·목록 표시. 상단 2~3개는 광고(recom_area)",
             elements=[
                 UIElement(
+                    "검색창",
+                    "#searchProduct",
+                    "placeholder='상품명을 검색하세요.' — 모델명 입력 후 Enter",
+                    verified=True,
+                ),
+                UIElement(
                     "제품 행 (비광고)",
-                    "tr[class*='productList_']:not(.recom_area)",
-                    "실제 제품 데이터 행 (TOOL get_products가 자동 수집)",
+                    "tr.productList_XXXXX:not(.recom_area)",
+                    "실제 제품 데이터 행 — TOOL get_products가 자동 수집",
                     verified=True,
                 ),
                 UIElement(
                     "광고/추천 제품 행",
-                    "tr.recom_area",
+                    "tr.recom_area.productList_XXXXX",
                     "상단 광고 제품 — TOOL이 자동 필터링하므로 신경 쓸 필요 없음",
                     verified=True,
                 ),
@@ -256,10 +268,10 @@ BASE_KNOWLEDGE = DanawaKnowledge(
                     verified=True,
                 ),
                 UIElement(
-                    "정렬 버튼",
-                    "a[onclick*='sort'], .sort_item a",
-                    "낮은가격순 정렬 — TOOL sort_cheapest 사용",
-                    verified=False,
+                    "낮은 가격순 정렬",
+                    "li > a (텍스트: '낮은 가격순')",
+                    "정렬 탭 — TOOL sort_cheapest 사용",
+                    verified=True,
                 ),
             ],
         ),

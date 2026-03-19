@@ -26,7 +26,21 @@ async def perceive(page: Page) -> ScreenState:
     vp = page.viewport_size or {"width": 1280, "height": 800}
     width, height = vp["width"], vp["height"]
 
-    raw_bytes = await page.screenshot(full_page=False)
+    try:
+        raw_bytes = await page.screenshot(full_page=False, timeout=30000)
+    except Exception:
+        # 페이지가 로딩 중이거나 응답 없음 → 잠시 기다렸다가 재시도
+        await page.wait_for_timeout(3000)
+        try:
+            raw_bytes = await page.screenshot(full_page=False, timeout=20000)
+        except Exception:
+            # 최후 수단: 빈 흰 이미지 반환 (에이전트가 WAIT 액션 선택하도록)
+            import io
+            from PIL import Image as _Img
+            img = _Img.new("RGB", (width, height), color=(255, 255, 255))
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            raw_bytes = buf.getvalue()
     screenshot_b64 = base64.standard_b64encode(raw_bytes).decode()
 
     return ScreenState(
