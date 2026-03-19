@@ -178,11 +178,9 @@ def _build_goal(step: PlanStep, enforce_budget: bool = True) -> str:
     elif not enforce_budget:
         parts.append("단계별 예산 제한 없음 — 가장 저렴한 제품 선택")
     if step.hint:
-        if enforce_budget:
-            parts.append(f"필수 검색어: {step.hint} (이 모델만 검색할 것, 다른 모델로 변경 금지)")
-        else:
-            # 예산 제한 없는 경우: 카테고리+필터 방식 우선, 검색은 참고용
-            parts.append(f"참고 모델/규격: {step.hint} (방법 A 카테고리+필터 방식 우선, 검색 방식도 가능)")
+        # hint는 필터/규격 참고 정보 (강제 검색어 아님)
+        # 카테고리+필터 방식(방법 A)으로 자율 탐색, hint는 필터 선택의 참고용
+        parts.append(f"요구사항: {step.hint} (카테고리+필터 방식으로 조건에 맞는 가장 저렴한 제품 선택)")
     return " — ".join(parts)
 
 
