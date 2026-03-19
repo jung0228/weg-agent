@@ -5,13 +5,14 @@ LLM이 스크린샷에서 직접 픽셀 좌표를 추론해서 액션을 출력�
 import re
 from dataclasses import dataclass
 from typing import Literal
+from urllib.parse import quote
 
 from playwright.async_api import Page
 
 
 ActionType = Literal[
     "click", "type", "type_enter", "scroll",
-    "goto", "back", "wait", "done", "tool"
+    "goto", "back", "wait", "done", "tool", "search"
 ]
 
 
@@ -35,12 +36,17 @@ def parse_action(raw: str) -> Action:
       TYPE_ENTER (423, 187) "검색어"   ← 입력 후 Enter
       SCROLL DOWN  /  SCROLL UP
       GOTO https://...
+      SEARCH "검색 쿼리"               ← 구글 검색 (탈출구)
       BACK
       WAIT
       DONE "요약"
       DONE "요약 | 부품:카테고리 | 이름:제품명 | 가격:숫자"
     """
     raw = raw.strip()
+
+    # SEARCH "query"  — CLICK보다 먼저 (오탐 방지)
+    if m := re.search(r'SEARCH\s+"([^"]*)"', raw, re.I):
+        return Action(type="search", value=m.group(1))
 
     # CLICK (x, y)
     if m := re.search(r"CLICK\s*\(\s*([\d.]+)\s*,\s*([\d.]+)\s*\)", raw, re.I):
@@ -112,6 +118,43 @@ async def execute(action: Action, page: Page) -> str:
     elif action.type == "goto":
         await page.goto(action.value, wait_until="domcontentloaded", timeout=15000)
         return f"Navigated to {action.value}"
+
+    elif action.type == "search":
+        query = action.value or ""
+        url = f"https://www.google.com/search?q={quote(query)}&hl=ko&gl=kr"
+        await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+        await page.wait_for_timeout(800)
+
+        # 검색 결과 상위 URL 추출 (에이전트가 바로 GOTO 할 수 있도록)
+        _JS_EXTRACT_RESULTS = """
+        () => {
+            const results = [];
+            // Google 유기 검색 결과: h3을 포함한 가장 가까운 <a> 찾기
+            document.querySelectorAll('h3').forEach(h3 => {
+                const a = h3.closest('a') || h3.querySelector('a');
+                if (!a) return;
+                const href = a.href;
+                if (!href || href.includes('google.com') || href.startsWith('javascript:')) return;
+                const title = h3.innerText.trim().replace(/\\s+/g, ' ');
+                if (title.length < 3) return;
+                results.push({ title: title.slice(0, 70), url: href });
+            });
+            return results.slice(0, 6);
+        }
+        """
+        try:
+            results = await page.evaluate(_JS_EXTRACT_RESULTS)
+        except Exception:
+            results = []
+
+        if results:
+            lines = [f"검색 결과 ({query}):"]
+            for i, r in enumerate(results, 1):
+                lines.append(f"  {i}. {r['title']}  →  {r['url']}")
+            lines.append("원하는 URL로 이동하려면 GOTO <url> 를 사용하세요.")
+            return "\n".join(lines)
+        else:
+            return f"검색 완료 ({query}) — 결과 스크린샷을 확인하고 GOTO 또는 CLICK으로 이동하세요."
 
     elif action.type == "back":
         await page.go_back(wait_until="domcontentloaded", timeout=8000)

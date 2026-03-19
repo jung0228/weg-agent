@@ -51,6 +51,7 @@ TYPE_ENTER [N] "텍스트"  ← SOM 번호로 입력창 선택 후 텍스트 입
 TYPE_ENTER (x, y) "텍스트"
 SCROLL DOWN  /  SCROLL UP
 GOTO https://...
+SEARCH "검색 쿼리"    ← 구글 검색 — 현재 사이트에서 막혔을 때 탈출구
 BACK
 WAIT
 
@@ -94,6 +95,14 @@ CPU 예시:
 4. TOOL sort_cheapest             ← 카테고리 뷰이므로 sort 가능
 5. TOOL get_products
 6. TOOL add_product 1
+
+## SEARCH 사용 원칙 (탈출구)
+- **SEARCH는 현재 사이트에서 해결이 안 될 때만** — 3회 이상 같은 시도가 반복되면 고려
+- 검색 결과로 URL 목록이 반환됨 → 바로 GOTO <url> 로 이동 가능
+- 예시:
+  - `SEARCH "다나와 견적 메인보드 H610M 최저가"` → 관련 URL 찾아서 GOTO
+  - `SEARCH "인텔 i3-13100 소켓 종류"` → 호환성 확인
+- SEARCH 후 결과 URL에서 원하는 페이지로 GOTO, 또는 스크린샷 보고 CLICK
 
 ## 핵심 규칙
 - **목표에 "최대 X원 이내" 가 명시된 경우, 반드시 그 금액 이하 제품만 선택**
