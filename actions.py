@@ -121,24 +121,50 @@ async def execute(action: Action, page: Page) -> str:
 
     elif action.type == "search":
         query = action.value or ""
-        url = f"https://www.google.com/search?q={quote(query)}&hl=ko&gl=kr"
+        # 네이버 검색 — 한국어 PC 부품 검색에 최적, headless 차단 없음
+        url = f"https://search.naver.com/search.naver?query={quote(query)}"
         await page.goto(url, wait_until="domcontentloaded", timeout=15000)
-        await page.wait_for_timeout(800)
+        await page.wait_for_timeout(600)
 
         # 검색 결과 상위 URL 추출 (에이전트가 바로 GOTO 할 수 있도록)
+        # 네이버 결과: .total_tit > a 또는 a.link_tit
         _JS_EXTRACT_RESULTS = """
         () => {
             const results = [];
-            // Google 유기 검색 결과: h3을 포함한 가장 가까운 <a> 찾기
-            document.querySelectorAll('h3').forEach(h3 => {
-                const a = h3.closest('a') || h3.querySelector('a');
-                if (!a) return;
-                const href = a.href;
-                if (!href || href.includes('google.com') || href.startsWith('javascript:')) return;
-                const title = h3.innerText.trim().replace(/\\s+/g, ' ');
-                if (title.length < 3) return;
-                results.push({ title: title.slice(0, 70), url: href });
-            });
+            const seen = new Set();
+
+            // 네이버 통합 검색 — 웹 문서 결과
+            const selectors = [
+                '.total_tit a',      // 웹문서 제목 링크
+                'a.link_tit',        // 뉴스/블로그 제목
+                '.source_box a',     // 출처 링크
+            ];
+
+            for (const sel of selectors) {
+                document.querySelectorAll(sel).forEach(a => {
+                    const href = a.href;
+                    if (!href || href.includes('naver.com') || href.startsWith('javascript:')) return;
+                    if (seen.has(href)) return;
+                    seen.add(href);
+                    const title = (a.innerText || a.textContent || '').trim().replace(/\\s+/g, ' ');
+                    if (title.length < 3) return;
+                    results.push({ title: title.slice(0, 70), url: href });
+                });
+                if (results.length >= 6) break;
+            }
+
+            // fallback: 외부 링크 전체 스캔
+            if (results.length === 0) {
+                document.querySelectorAll('a[href^="http"]').forEach(a => {
+                    const href = a.href;
+                    if (href.includes('naver.com') || seen.has(href)) return;
+                    seen.add(href);
+                    const title = (a.innerText || '').trim().replace(/\\s+/g, ' ');
+                    if (title.length < 3) return;
+                    results.push({ title: title.slice(0, 70), url: href });
+                });
+            }
+
             return results.slice(0, 6);
         }
         """
