@@ -1,7 +1,7 @@
 """
-planner.py — 고수준 계획 수립 (1회 LLM 호출)
-태스크를 독립 실행 가능한 서브태스크 목록으로 분해한다.
-각 단계에 부품별 예산 상한 + 필터 힌트(선택)를 배분한다.
+planner.py — 고수준 계획 수립 + 동적 계획 리뷰
+- create_plan: 초기 계획 수립 (1회)
+- review_plan: 매 스텝 실행 후 결과를 보고 남은 계획 조정 (동적)
 """
 import json
 import re
@@ -123,31 +123,117 @@ def create_plan(task: str, budget: int, client: openai.OpenAI, model: str) -> li
     return _extract_steps(raw)
 
 
-def replan(
+_REVIEW_SYSTEM = """\
+당신은 PC 견적 웹 에이전트의 계획 관리자입니다.
+에이전트가 한 단계를 실행한 후, 결과를 분석하고 남은 계획을 조정하세요.
+
+## 역할
+- 방금 실행된 단계의 결과(성공/실패, 실제 소요 예산)를 반영한다
+- 남은 계획이 여전히 적절한지 판단한다
+- 필요하면 남은 계획을 수정한다
+
+## 조정 원칙
+성공한 경우:
+- 실제 지출 예산을 반영해 잔여 예산을 재계산한다
+- 이미 선택된 부품과 호환되도록 다음 단계 hint를 조정한다 (예: CPU 소켓에 맞는 메인보드)
+
+실패한 경우:
+- 같은 방법을 반복하지 말 것 — 반드시 다른 접근법을 택한다
+- 예산 내 제품이 없으면: 예산을 소폭 상향하거나, 다른 브랜드/소켓 시도
+  - 인텔 소켓1700 + 내장그래픽 + 저예산 → AMD APU(Ryzen G) 또는 예산 상향
+  - 특정 필터 실패 → 필터 없이 카테고리 탐색
+- 실패 단계를 다시 계획에 포함시킬 때는 hint를 바꿔서 다른 전략을 명시한다
+
+## 출력 형식
+반드시 JSON만 출력 (다른 텍스트 없이):
+{
+  "reasoning": "조정 근거 한 줄",
+  "steps": [
+    {"name": "...", "budget": 0, "hint": ""}
+  ]
+}
+
+주의:
+- steps는 아직 완료되지 않은 남은 단계만 포함 (이미 완료된 단계 제외)
+- 마지막 단계는 반드시 "최종 견적 확인 및 결과 정리" (budget=0, hint="")
+- hint에 특정 모델명 금지 — 규격/전략 힌트만 허용
+"""
+
+
+def review_plan(
     task: str,
     budget: int,
+    spent_so_far: int,
     completed: list[str],
-    failed_step: str,
-    memory_context: str,
+    last_step_name: str,
+    last_step_result: str,
+    last_step_success: bool,
+    remaining_steps: list["PlanStep"],
     client: openai.OpenAI,
     model: str,
-) -> list[PlanStep]:
-    """실패한 단계 이후 남은 계획을 재수립한다."""
+) -> list["PlanStep"]:
+    """
+    매 스텝 실행 후 결과를 보고 남은 계획을 동적으로 조정한다.
+    성공/실패 모두 호출 — 실제 지출과 관찰 결과를 반영한다.
+    """
+    remaining_budget = budget - spent_so_far
+    status = "✓ 성공" if last_step_success else "✗ 실패"
+
+    remaining_desc = ""
+    if remaining_steps:
+        lines = []
+        for s in remaining_steps:
+            b = f" (최대 {s.budget:,}원)" if s.budget else ""
+            h = f" | 힌트: {s.hint}" if s.hint else ""
+            lines.append(f"  - {s.name}{b}{h}")
+        remaining_desc = "현재 남은 계획:\n" + "\n".join(lines)
+    else:
+        remaining_desc = "남은 계획: 없음"
+
+    completed_desc = ""
+    if completed:
+        completed_desc = "완료된 단계:\n" + "\n".join(f"  ✓ {s}" for s in completed)
+
     prompt = (
-        f"원래 태스크: {task}\n총 예산: {budget:,}원\n\n"
-        f"완료된 단계:\n" + "\n".join(f"  ✓ {s}" for s in completed) + "\n\n"
-        f"실패한 단계: {failed_step}\n\n"
-        f"{memory_context}\n\n"
-        "위 상태에서 남은 태스크를 완료하기 위한 새 계획을 수립하세요. "
-        "잔여 예산에 맞게 각 부품 예산을 재배분하세요."
+        f"태스크: {task[:200]}\n"
+        f"총 예산: {budget:,}원 | 현재까지 지출: {spent_so_far:,}원 | 잔여: {remaining_budget:,}원\n\n"
+        f"{completed_desc}\n\n"
+        f"방금 실행: [{status}] {last_step_name}\n"
+        f"결과: {last_step_result[:300]}\n\n"
+        f"{remaining_desc}\n\n"
+        "위 결과를 반영해 남은 계획을 조정하세요. "
+        "변경이 불필요하면 현재 남은 계획을 그대로 반환하세요."
     )
+
     response = client.chat.completions.create(
         model=model,
         max_tokens=512,
         messages=[
-            {"role": "system", "content": PLAN_SYSTEM},
+            {"role": "system", "content": _REVIEW_SYSTEM},
             {"role": "user", "content": prompt},
         ],
     )
     raw = response.choices[0].message.content.strip()
-    return _extract_steps(raw)
+
+    # reasoning 필드 파싱 후 steps만 추출
+    try:
+        cleaned = re.sub(r"```(?:json)?\s*", "", raw).strip().rstrip("`").strip()
+        parsed = json.loads(cleaned)
+        if "reasoning" in parsed:
+            print(f"    [Planner] {parsed['reasoning']}")
+        steps_raw = parsed.get("steps", [])
+        if steps_raw:
+            return [
+                PlanStep(
+                    name=str(s.get("name", "")).strip(),
+                    budget=int(s.get("budget", 0) or 0),
+                    hint=str(s.get("hint", "")).strip(),
+                )
+                for s in steps_raw
+                if isinstance(s, dict) and s.get("name")
+            ]
+    except Exception:
+        pass
+
+    # 파싱 실패 시 기존 remaining_steps 그대로 반환
+    return remaining_steps

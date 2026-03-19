@@ -1,9 +1,9 @@
 """
-agent.py — Planner-Executor 오케스트레이터
-1. Planner: 태스크를 서브태스크 목록으로 1회 분해
+agent.py — Planner-Executor 오케스트레이터 (동적 플래닝)
+1. Planner: 초기 계획 수립 (1회)
 2. Executor: 각 서브태스크를 AgentBrain 기반 미니 ReAct로 실행
 3. WorkingMemory: 선택 부품 + 잔여 예산을 구조화해 Executor에 주입
-4. Replan: Executor 실패 시 남은 단계 재수립
+4. review_plan: 매 스텝 후 결과를 보고 남은 계획 동적 조정
 """
 import os
 import re
@@ -13,13 +13,14 @@ import openai
 from playwright.async_api import Page
 
 from memory import WorkingMemory
-from planner import create_plan, replan, PlanStep
+from planner import create_plan, review_plan, PlanStep
 from executor import Executor, ExecStep
 from knowledge import load_knowledge, DanawaKnowledge
 
 
 MODEL = "gemini-3-flash-preview"
 LETSUR_BASE_URL = "https://gateway.letsur.ai/v1"
+MAX_TOTAL_PLAN_STEPS = 12  # 전체 플랜 스텝 상한 (무한루프 방지)
 
 
 @dataclass
@@ -75,15 +76,22 @@ class WebAgent:
             hint_str = f"  → {s.hint}" if s.hint else ""
             print(f"  {i}. {s.name}{budget_str}{hint_str}")
 
-        # ── 3. 단계별 실행 ────────────────────────────────────────
+        # ── 3. 단계별 실행 (동적 플래닝) ─────────────────────────
         executor = Executor(self.client, MODEL, knowledge=knowledge)
         all_exec_steps: list[ExecStep] = []
 
         i = 0
+        total_plan_steps_run = 0
         while i < len(steps):
+            # 전체 스텝 상한 — 무한루프 방지
+            if total_plan_steps_run >= MAX_TOTAL_PLAN_STEPS:
+                print(f"\n[안전 종료] 최대 {MAX_TOTAL_PLAN_STEPS}단계 도달 — 조기 종료")
+                break
+
             plan_step = steps[i]
             goal = _build_goal(plan_step, enforce_budget=enforce_budget)
-            print(f"\n[Step {i+1}/{len(steps)}] {goal}")
+            total_plan_steps_run += 1
+            print(f"\n[Step {total_plan_steps_run} | Plan {i+1}/{len(steps)}] {goal}")
             print("-" * 50)
 
             step_result = await executor.run(goal, page, memory)
@@ -95,20 +103,24 @@ class WebAgent:
                 print(f"  ✓ 완료: {summary[:80]}")
             else:
                 print(f"  ✗ 실패: {summary}")
-                remaining_original = steps[i+1:]
-                if remaining_original:
-                    print(f"  [Replanner] 남은 {len(remaining_original)}단계 재수립 중...")
-                    new_remaining = replan(
-                        task=task,
-                        budget=budget,
-                        completed=memory.completed_steps,
-                        failed_step=plan_step.name,
-                        memory_context=memory.to_context(),
-                        client=self.client,
-                        model=MODEL,
-                    )
-                    steps = steps[:i+1] + new_remaining
-                    print(f"  [Replanner] {len(new_remaining)}단계로 재수립")
+
+            # ── 동적 플래닝: 매 스텝 후 남은 계획 리뷰 ──────────
+            remaining = steps[i+1:]
+            if remaining:
+                print(f"  [Planner 리뷰] 남은 {len(remaining)}단계 조정 중...")
+                updated_remaining = review_plan(
+                    task=task,
+                    budget=budget,
+                    spent_so_far=memory.spent,
+                    completed=memory.completed_steps,
+                    last_step_name=plan_step.name,
+                    last_step_result=summary,
+                    last_step_success=step_result.success,
+                    remaining_steps=remaining,
+                    client=self.client,
+                    model=MODEL,
+                )
+                steps = steps[:i+1] + updated_remaining
 
             i += 1
 
