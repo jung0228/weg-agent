@@ -11,7 +11,7 @@ from playwright.async_api import Page
 
 
 ActionType = Literal[
-    "click", "type", "type_enter", "scroll",
+    "click", "type", "type_enter", "type_css", "scroll",
     "goto", "back", "wait", "done", "tool", "search"
 ]
 
@@ -47,6 +47,10 @@ def parse_action(raw: str) -> Action:
     # SEARCH "query"  — CLICK보다 먼저 (오탐 방지)
     if m := re.search(r'SEARCH\s+"([^"]*)"', raw, re.I):
         return Action(type="search", value=m.group(1))
+
+    # TYPE_CSS "#selector" "text"  — CSS 셀렉터로 입력창 특정 후 텍스트 입력 + Enter
+    if m := re.search(r'TYPE_CSS\s+"([^"]+)"\s+"([^"]*)"', raw, re.I):
+        return Action(type="type_css", value=m.group(1), tool_args=m.group(2))
 
     # CLICK (x, y)
     if m := re.search(r"CLICK\s*\(\s*([\d.]+)\s*,\s*([\d.]+)\s*\)", raw, re.I):
@@ -108,6 +112,23 @@ async def execute(action: Action, page: Page) -> str:
         await page.keyboard.press("Enter")
         await page.wait_for_load_state("domcontentloaded", timeout=8000)
         return f"Typed '{action.value}' + Enter at ({action.x}, {action.y})"
+
+    elif action.type == "type_css":
+        selector = action.value or ""
+        text = action.tool_args or ""
+        try:
+            await page.focus(selector)
+            await page.fill(selector, text)
+            # button.btn_search 가 있으면 클릭 (Enter 키는 다나와에서 팝업/이탈 유발)
+            search_btn_count = await page.locator("button.btn_search").count()
+            if search_btn_count > 0:
+                await page.locator("button.btn_search").click()
+            else:
+                await page.keyboard.press("Enter")
+            await page.wait_for_load_state("domcontentloaded", timeout=8000)
+            return f"TYPE_CSS '{selector}' ← '{text}' + 검색버튼: 성공"
+        except Exception as e:
+            return f"TYPE_CSS '{selector}' 실패: {e}"
 
     elif action.type == "scroll":
         delta = -600 if action.direction == "up" else 600

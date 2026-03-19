@@ -22,6 +22,8 @@ _EXEC_SYSTEM_TMPL = """\
 당신은 웹 브라우저를 시각적으로 제어하는 에이전트입니다.
 스크린샷을 관찰하고, 필요한 곳을 클릭/입력해서 목표를 달성합니다.
 
+{knowledge_context}
+
 {memory_context}
 
 ## 현재 목표
@@ -33,11 +35,17 @@ CLICK (x, y)              ← 픽셀 좌표 클릭
 CLICK [N]                 ← 스크린샷 번호 배지([N]) 클릭 — 번호가 보일 때 권장
 TYPE_ENTER (x, y) "텍스트" ← 클릭 후 입력 + Enter
 TYPE_ENTER [N] "텍스트"    ← 번호 배지 입력창 선택 후 텍스트 입력 + Enter
+TYPE_CSS "#셀렉터" "텍스트" ← CSS 셀렉터로 입력창 직접 특정 후 텍스트 입력 + Enter (좌표 불확실 시 권장)
 SCROLL DOWN / SCROLL UP
 GOTO https://...
 SEARCH "쿼리"             ← 네이버 검색 (현재 페이지에서 막혔을 때)
 BACK
 WAIT
+
+TOOL search "검색어"      ← 다나와: #searchProduct 입력 + btn_search 클릭 (Enter 없이 — 팝업 방지)
+TOOL sort_cheapest        ← 다나와: JS로 '낮은 가격순' 정렬 (좌표 클릭보다 신뢰성 높음)
+TOOL get_products         ← 다나와: 광고 제외 제품 목록 텍스트 반환 (이름·가격 확인용)
+TOOL add_product N        ← 다나와: N번째 제품 '담기' 버튼 JS 클릭 (좌표 클릭 불가 — 반드시 TOOL 사용)
 
 DONE "요약"
 DONE "요약 | 부품:카테고리 | 이름:제품명 | 가격:숫자"
@@ -54,6 +62,11 @@ Action: <위 액션 중 하나>
 - **번호 배지([N])가 스크린샷에 있으면** CLICK [N] 사용 — 좌표보다 정확함
 - **목표에 예산이 명시된 경우** 해당 금액 이하 제품만 선택
 - **같은 액션을 반복하지 말 것** — 실패 시 다른 방법 시도
+- **정렬 완료 후 제품이 보이면 즉시 클릭** — 정렬 버튼 재클릭 금지
+- **다나와 부품 담기**: 반드시 `TOOL add_product 1` 사용 — 좌표 클릭으로는 담기 불가
+- **다나와 검색창 입력**: 좌표 추론 대신 `TYPE_CSS "#searchProduct" "검색어"` 사용
+- **다나와 정렬**: `TOOL sort_cheapest` 사용 (좌표 클릭보다 신뢰성 높음)
+- **다나와 부품 선택 흐름**: TYPE_CSS 검색 → TOOL sort_cheapest → TOOL get_products → TOOL add_product 1 → DONE
 - **막혔을 때**: SCROLL DOWN으로 더 보거나, BACK으로 이전 페이지, SEARCH로 우회
 - 뷰포트: {width}×{height}px
 - 한 번에 액션 하나만
@@ -105,6 +118,7 @@ class Executor:
         knowledge_ctx = self.knowledge.to_context()
 
         prev_action_raw = ""
+        prev_observation: str = ""
         same_action_count = 0
         consec_fail_count = 0
         last_add_product_obs = ""  # 마지막 add_product 성공 관측값 (DONE 루프 탈출용)
@@ -129,6 +143,7 @@ class Executor:
                 else:
                     raise
             system_prompt_with_vp = _EXEC_SYSTEM_TMPL.format(
+                knowledge_context=knowledge_ctx,
                 memory_context=memory.to_context(),
                 goal=goal,
                 width=state.width,
@@ -136,8 +151,8 @@ class Executor:
             )
             print(f"    [{step_num}] vision | {state.width}×{state.height}", end="")
 
-            # THINK — 스크린샷 + URL/Title만 전달
-            user_content = _build_message(state, step_num)
+            # THINK — 스크린샷 + 이전 액션 결과 전달
+            user_content = _build_message(state, step_num, prev_observation)
             history.append({"role": "user", "content": user_content})
 
             response = self.client.chat.completions.create(
@@ -177,9 +192,32 @@ class Executor:
                     if action.type == "tool":
                         # TOOL 명령 → tools.py 디스패처로 위임
                         observation = await execute_tool(action.value or "", action.tool_args or "", page)
-                        # add_product 성공 시 관측값 기록 (DONE 루프 탈출용)
+                        # add_product 성공 시 즉시 자동 완료 (LLM second-guess 방지)
                         if (action.value or "").lower() == "add_product" and "담기 완료" in observation:
                             last_add_product_obs = observation
+                            # ExecStep 기록 후 즉시 반환 — remove_part 호출 차단
+                            exec_steps.append(ExecStep(
+                                step=step_num,
+                                eval_prev=eval_prev,
+                                memory_note=memory_note,
+                                predict=predict,
+                                goal_intent=goal_intent,
+                                action_raw=action_raw,
+                                action=action,
+                                observation=observation,
+                                screenshot_b64=state.screenshot_b64,
+                            ))
+                            # goal에서 카테고리 추출 → try_parse_part 호환 포맷 생성
+                            import re as _re_cat
+                            _cat_m = _re_cat.search(r'(CPU|메인보드|메모리|RAM|SSD|HDD|케이스|파워|그래픽카드)', goal)
+                            _cat = _cat_m.group(1) if _cat_m else "부품"
+                            auto_summary = f"자동완료 | 부품:{_cat} | {observation.replace('담기 완료 | ', '')}"
+                            part = try_parse_part(auto_summary)
+                            if part:
+                                cat, name, price = part
+                                memory.add_part(cat, name, price)
+                                print(f"    → [add_product 즉시완료] {cat} / {name} / {price:,}원")
+                            return StepResult(success=True, summary=auto_summary, steps=exec_steps)
                     else:
                         observation = await execute(action, page)
                 except Exception as e:
@@ -198,6 +236,8 @@ class Executor:
                 observation=observation,
                 screenshot_b64=state.screenshot_b64,
             ))
+
+            prev_observation = observation  # 다음 스텝 메시지에 포함
 
             mode = "tool" if (action and action.type == "tool") else "vision"
             predict_short = f" → {predict[:35]}" if predict else ""
@@ -313,10 +353,12 @@ def _resolve_som_refs(action_raw: str, elements_by_id: dict) -> str:
     return action_raw
 
 
-def _build_message(state: ScreenState, step: int) -> list[dict]:
+def _build_message(state: ScreenState, step: int, prev_observation: str = "") -> list[dict]:
     """스크린샷 + 페이지 정보를 LLM 메시지로 조립한다."""
-    text_block = (
-        f"## Step {step}\n"
+    text_block = f"## Step {step}\n"
+    if prev_observation:
+        text_block += f"**이전 액션 결과**: {prev_observation}\n\n"
+    text_block += (
         f"URL: {state.page_url}\n"
         f"Title: {state.page_title}\n\n"
         f"스크린샷을 보고 좌표를 직접 추론해서 액션을 결정하세요."

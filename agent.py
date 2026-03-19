@@ -22,6 +22,11 @@ MODEL = "gemini-3-flash-preview"
 LETSUR_BASE_URL = "https://gateway.letsur.ai/v1"
 MAX_TOTAL_PLAN_STEPS = 12  # 전체 플랜 스텝 상한 (무한루프 방지)
 
+DANAWA_ESTIMATE_URL = (
+    "https://shop.danawa.com/virtualestimate/"
+    "?controller=estimateMain&methods=index&marketPlaceSeq=16"
+)
+
 
 @dataclass
 class Step:
@@ -93,6 +98,19 @@ class WebAgent:
             total_plan_steps_run += 1
             print(f"\n[Step {total_plan_steps_run} | Plan {i+1}/{len(steps)}] {goal}")
             print("-" * 50)
+
+            # 매 스텝 시작 전 다나와 estimate 페이지 복구
+            if "virtualestimate" not in page.url:
+                print("  [복구] 다나와 estimate 페이지로 이동 중...")
+                try:
+                    await page.goto(
+                        DANAWA_ESTIMATE_URL,
+                        wait_until="domcontentloaded",
+                        timeout=20000,
+                    )
+                    await page.wait_for_timeout(1500)
+                except Exception as _nav_e:
+                    print(f"  [복구 실패] {_nav_e}")
 
             step_result = await executor.run(goal, page, memory)
             all_exec_steps.extend(step_result.steps)
