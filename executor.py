@@ -121,6 +121,7 @@ Action: <위 형식 중 하나>
 - 한 번에 액션 하나만
 - DONE은 목표가 완전히 달성됐을 때만
 - WAIT은 로딩 중일 때만
+- 스크린샷에 번호 배지([N])가 표시된 경우: 아래 SOM 요소 목록에서 해당 번호의 좌표를 확인해 CLICK (x, y) 하세요
 """
 
 
@@ -322,6 +323,9 @@ def _build_message(state: ScreenState, step: int) -> list[dict]:
         f"Title: {state.page_title}\n\n"
         f"스크린샷을 보고 좌표를 직접 추론해서 액션을 결정하세요."
     )
+    # SOM 모드: 요소 목록 첨부 (SOM_MODE=1일 때만 element_map이 채워짐)
+    if state.element_map:
+        text_block += f"\n\n{state.element_map}"
     return [
         {
             "type": "image_url",
