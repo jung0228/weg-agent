@@ -15,124 +15,50 @@ from tools import execute_tool
 from knowledge import DanawaKnowledge, BASE_KNOWLEDGE, load_knowledge
 
 
-MAX_EXEC_STEPS = 12
+MAX_EXEC_STEPS = 15
 
 
 _EXEC_SYSTEM_TMPL = """\
-당신은 웹 브라우저를 픽셀 좌표로 제어하는 에이전트입니다.
-스크린샷을 보고 클릭/입력할 위치의 좌표를 직접 출력합니다.
+당신은 웹 브라우저를 시각적으로 제어하는 에이전트입니다.
+스크린샷을 관찰하고, 필요한 곳을 클릭/입력해서 목표를 달성합니다.
 
 {memory_context}
-
-{knowledge_context}
 
 ## 현재 목표
 {goal}
 
-## 액션 형식 — 두 가지 방식
+## 액션 형식
 
-### 1. TOOL (권장 — DOM 기반, 신뢰성 높음)
-TOOL select_category "CPU"          ← 카테고리 선택 (CPU/메인보드/메모리/SSD/케이스/파워)
-TOOL filter "인텔(소켓1700)"         ← 필터 체크박스 클릭 (레이블 텍스트 그대로)
-TOOL filter "DDR4"                  ← 메모리 규격 필터
-TOOL filter "인텔"                  ← 제조사 필터
-TOOL clear_filters                  ← 현재 카테고리 필터 전체 해제
-TOOL search "H610M"                 ← 검색창 입력 (카테고리 내 검색)
-TOOL sort_cheapest                  ← 낮은 가격순 정렬
-TOOL get_products                   ← 현재 제품 목록 확인 (광고 자동 제외)
-TOOL add_product 1                  ← n번째 제품 담기 (광고 자동 스킵, 1-indexed)
-TOOL remove_part "메인보드"         ← 오른쪽 패널에서 해당 카테고리 부품 삭제
-TOOL get_cart                       ← 현재 오른쪽 패널 견적 현황 확인
-
-### 2. 좌표 기반 (TOOL로 처리 안 되는 경우)
-CLICK (x, y)          ← 픽셀 좌표 직접 지정
-CLICK [N]             ← SOM 번호 지정 (스크린샷 배지 참조 — 권장)
-TYPE_ENTER [N] "텍스트"  ← SOM 번호로 입력창 선택 후 텍스트 입력 + Enter
-TYPE_ENTER (x, y) "텍스트"
-SCROLL DOWN  /  SCROLL UP
+CLICK (x, y)              ← 픽셀 좌표 클릭
+CLICK [N]                 ← 스크린샷 번호 배지([N]) 클릭 — 번호가 보일 때 권장
+TYPE_ENTER (x, y) "텍스트" ← 클릭 후 입력 + Enter
+TYPE_ENTER [N] "텍스트"    ← 번호 배지 입력창 선택 후 텍스트 입력 + Enter
+SCROLL DOWN / SCROLL UP
 GOTO https://...
-SEARCH "검색 쿼리"    ← 네이버 검색 — 현재 사이트에서 막혔을 때 탈출구
+SEARCH "쿼리"             ← 네이버 검색 (현재 페이지에서 막혔을 때)
 BACK
 WAIT
 
 DONE "요약"
 DONE "요약 | 부품:카테고리 | 이름:제품명 | 가격:숫자"
 
-## 권장 워크플로우 (부품 하나 추가)
-
-### ⚠️ 핵심: sort_cheapest는 검색(search) 결과 뷰에서 작동하지 않음
-- `TOOL search` 이후에는 **절대 sort_cheapest 사용 금지** → 검색 필터가 리셋됨
-- sort_cheapest는 반드시 **`TOOL select_category` 이후 카테고리 뷰**에서만 사용
-
-### 방법 A: 카테고리 + 필터 방식 (sort 사용 가능 — 모든 부품 권장)
-CPU 예시:
-1. TOOL select_category "CPU"
-2. TOOL filter "인텔(소켓1700)"       ← 소켓/규격 필터
-3. TOOL sort_cheapest                ← 카테고리 뷰에서만 동작
-4. TOOL get_products
-5. TOOL add_product 1
-6. DONE "... | 부품:CPU | 이름:... | 가격:..."
-
-메모리 예시 (반드시 방법 A 사용 — 검색 절대 금지):
-1. TOOL select_category "메모리"
-2. TOOL filter "DDR4"                ← 메모리 규격 필터
-3. TOOL sort_cheapest
-4. TOOL get_products
-5. TOOL add_product 1
-
-### 방법 B: 검색 방식 (특정 모델명 알 때 — sort 사용 금지)
-1. TOOL select_category "메인보드"
-2. TOOL search "H610M"               ← 카테고리 내 검색
-3. (**sort_cheapest 사용 금지** — 검색 결과 초기화됨)
-4. TOOL get_products                 ← 검색 결과 목록 (이미 관련 제품만 표시됨)
-5. TOOL add_product 1                ← 첫 번째 제품이 보통 가성비 제품
-
-### 방법 C: SSD 전용 (카테고리 + 필터 방식 — 검색 절대 금지)
-- SSD는 검색 방식이 불안정함 → 반드시 아래 순서 사용
-1. TOOL select_category "SSD"
-2. TOOL filter "256GB"            ← 용량 필터 (없으면 생략)
-3. TOOL filter "M.2 (NVMe)"       ← 인터페이스 필터 (있는 경우에만)
-4. TOOL sort_cheapest             ← 카테고리 뷰이므로 sort 가능
-5. TOOL get_products
-6. TOOL add_product 1
-
-## SEARCH 사용 원칙 (탈출구)
-- **SEARCH는 현재 사이트에서 해결이 안 될 때만** — 3회 이상 같은 시도가 반복되면 고려
-- 검색 결과로 URL 목록이 반환됨 → 바로 GOTO <url> 로 이동 가능
-- 예시:
-  - `SEARCH "다나와 H610M 메인보드 최저가"` → 관련 URL 찾아서 GOTO
-  - `SEARCH "AM4 소켓 CPU 내장그래픽"` → 호환성/규격 확인
-- SEARCH 후 결과 URL에서 원하는 페이지로 GOTO, 또는 스크린샷 보고 CLICK
-
-## 핵심 규칙
-- **목표에 "최대 X원 이내" 가 명시된 경우, 반드시 그 금액 이하 제품만 선택**
-  - get_products 결과에서 예산 초과 제품은 건너뛰고 예산 범위 내 제품 선택
-  - 예산 내 제품이 없으면 DONE 없이 필터/검색어 변경 후 재시도
-- **목표에 "필수 검색어: X" 가 있으면 반드시 그 검색어만 사용** — 다른 모델로 임의 변경 절대 금지
-- **목표에 "참고 모델/규격: X" 가 있으면 방법 A(카테고리+필터)를 우선 사용**, 검색은 차선책
-- **TOOL search 이후 TOOL sort_cheapest 절대 금지** — 검색 필터가 리셋됨
-  - 검색 후에는 바로 TOOL get_products → TOOL add_product
-  - sort_cheapest는 TOOL select_category 이후 카테고리 뷰에서만 사용
-  - TOOL search 후 카테고리 탭은 자동 선택됨 — 추가 CLICK으로 탭 클릭 불필요
-  - SSD 검색 시: "256GB NVMe SSD" 아닌 "256GB" 처럼 용량만 검색
-- **필터 레이블은 화면에 보이는 텍스트 그대로** — 예: "인텔(소켓1700)", "코어i3-12세대", "DDR4"
-- **TOOL get_products 이후에는 반드시 TOOL add_product N** 으로 담기
-- **부품 삭제 시 반드시 TOOL remove_part "카테고리"** — X 버튼 좌표 클릭 금지
-- **견적 현황 확인은 TOOL get_cart** — 스크린샷으로 추론하지 말 것
-
 ## 출력 형식 (반드시 이 순서)
 Eval: <이전 액션 결과 — Success / Failed / N/A>
 Memory: <기억할 정보 (제품명, 가격 등). 없으면 ->
-Predict: <이 액션 실행 시 예상 결과 — 확신 없으면 다른 액션 선택>
-Goal: <다음 액션 의도 한 문장>
-Action: <위 형식 중 하나>
+Predict: <이 액션 실행 시 예상 결과>
+Goal: <다음 액션 의도>
+Action: <위 액션 중 하나>
 
-## 주의사항
-- 뷰포트: {width}×{height}px — 이 범위 안의 좌표만 사용
+## 핵심 규칙
+- **스크린샷을 꼼꼼히 보고** 어떤 UI 요소가 있는지 파악한 후 액션 결정
+- **번호 배지([N])가 스크린샷에 있으면** CLICK [N] 사용 — 좌표보다 정확함
+- **목표에 예산이 명시된 경우** 해당 금액 이하 제품만 선택
+- **같은 액션을 반복하지 말 것** — 실패 시 다른 방법 시도
+- **막혔을 때**: SCROLL DOWN으로 더 보거나, BACK으로 이전 페이지, SEARCH로 우회
+- 뷰포트: {width}×{height}px
 - 한 번에 액션 하나만
-- DONE은 목표가 완전히 달성됐을 때만
-- WAIT은 로딩 중일 때만
-- 스크린샷에 번호 배지([N])가 표시된 경우: 아래 SOM 요소 목록에서 해당 번호의 좌표를 확인해 CLICK (x, y) 하세요
+- DONE은 목표 완전 달성 시만
+- WAIT은 페이지 로딩 중일 때만
 """
 
 
@@ -204,7 +130,6 @@ class Executor:
                     raise
             system_prompt_with_vp = _EXEC_SYSTEM_TMPL.format(
                 memory_context=memory.to_context(),
-                knowledge_context=knowledge_ctx,
                 goal=goal,
                 width=state.width,
                 height=state.height,
@@ -240,7 +165,7 @@ class Executor:
                     observation = (
                         "Action: 필드가 비어있습니다. "
                         "목표 달성 시 반드시 DONE \"요약 | 부품:카테고리 | 이름:제품명 | 가격:숫자\" 를 출력하세요. "
-                        "아직 미완료라면 다음 TOOL 또는 CLICK 액션을 출력하세요."
+                        "아직 미완료라면 다음 CLICK 또는 SCROLL 액션을 출력하세요."
                     )
             else:
                 try:
@@ -321,9 +246,12 @@ class Executor:
                 "content": f"Observation: {observation}",
             })
 
+        # 실패 요약 — 마지막 시도한 액션들 포함 (review_plan이 다른 전략 선택에 활용)
+        last_actions = [s.action_raw for s in exec_steps[-4:] if s.action_raw]
+        tried = " → ".join(a[:30] for a in last_actions) if last_actions else "없음"
         return StepResult(
             success=False,
-            summary=f"최대 {max_steps}스텝 초과 — 미완료",
+            summary=f"최대 {max_steps}스텝 초과 — 미완료. 마지막 시도: {tried}",
             steps=exec_steps,
         )
 
