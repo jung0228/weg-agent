@@ -1,0 +1,10 @@
+{
+  "test_inputs": {
+    "test_inputs": {
+      "status_filter": "...",
+      "search_keyword": "..."
+    },
+    "explanation": "...",
+    "extraction_method": "llm_based"
+  }
+}

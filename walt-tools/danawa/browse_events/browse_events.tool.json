@@ -1,0 +1,45 @@
+{
+  "tool_analysis": "The tool is designed to view and filter promotional events on the Danawa PC26 board. \n1. **Step Analysis**: The agent needs to access the board, apply filters for 'Ongoing' or 'Ended' status, and potentially search for specific keywords.\n2. **Task Definition**: Create a tool that retrieves a filtered list of events.\n3. **Action Plan**: Use direct URL navigation to apply filters (status and search) as this is more reliable than clicking UI elements which might be dynamic. Then extract the resulting list.\n4. **Variable Identification**: \n    - `status_filter`: Maps to the 'status' URL parameter (1 for Ongoing, 2 for Ended).\n    - `search_keyword`: Maps to the 'searchKeyword' URL parameter.\n5. **Optimization**: Instead of multiple clicks to select filters, I'm using URL manipulation to directly land on the filtered results page. This avoids the 'strict mode' and 'element not found' errors seen in the previous attempt. I've also added a wait step to ensure AJAX content loads before extraction.",
+  "name": "danawa_event_viewer",
+  "description": "View and filter promotional events on Danawa PC26, with options to filter by status (Ongoing/Ended) and search for specific events.",
+  "version": "1.1.0",
+  "steps": [
+    {
+      "description": "Navigate to the Danawa PC26 event board with optional status and search filters.",
+      "output": null,
+      "type": "navigation",
+      "url": "https://pc26.danawa.com/bbs/?controller=board&methods=getBoardList&boardSeq=122&searchType=title&searchKeyword={search_keyword}&status={status_filter}",
+      "url_operation": null
+    },
+    {
+      "description": "Wait for the event list to load.",
+      "output": null,
+      "type": "wait",
+      "seconds": 2.0
+    },
+    {
+      "description": "Extract the list of promotional events including titles, dates, and status.",
+      "output": "event_list",
+      "type": "extract_page_content",
+      "goal": "Extract all promotional event listings including their titles, status (Ongoing/Ended), and duration dates."
+    }
+  ],
+  "input_schema": [
+    {
+      "name": "status_filter",
+      "type": "string",
+      "format": null,
+      "description": "Filter events by status: '0' for All, '1' for Ongoing, '2' for Ended.",
+      "required": false,
+      "enum": null
+    },
+    {
+      "name": "search_keyword",
+      "type": "string",
+      "format": null,
+      "description": "Search term to filter events by title or content.",
+      "required": false,
+      "enum": null
+    }
+  ]
+}

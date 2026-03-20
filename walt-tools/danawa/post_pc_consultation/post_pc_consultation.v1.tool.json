@@ -1,0 +1,71 @@
+{
+  "tool_analysis": "1. **Step Analysis**: The agent navigates to the Danawa PC build board, clicks the write button, fills in the title and content fields, and submits the post.\n2. **Task Definition**: Create a tool that automates posting a PC build consultation on Danawa.\n3. **Action Plan**: \n    - Navigate to the board URL.\n    - Click 'Write' (\uae00\uc4f0\uae30).\n    - Input the title parameter.\n    - Input the content parameter.\n    - Click the submit/register button.\n4. **Variable Identification**: \n    - `title`: The subject of the post.\n    - `content`: The body text describing the PC needs.\n5. **Step Optimization**: Direct navigation to the board list is used. The 'Write' button and form fields are targeted using element hashes for deterministic interaction. Authentication is assumed to be handled by the session.",
+  "name": "create_danawa_pc_advice_post",
+  "description": "Creates a new post on the Danawa PC build advice board with a title and detailed description.",
+  "version": "1.0.0",
+  "steps": [
+    {
+      "description": "Navigate directly to the PC build advice board.",
+      "output": null,
+      "type": "navigation",
+      "url": "https://pc26.danawa.com/bbs/?controller=board&methods=getBoardList&boardSeq=115",
+      "url_operation": null
+    },
+    {
+      "description": "Click the 'Write' (\uae00\uc4f0\uae30) button to open the post creation form.",
+      "output": null,
+      "cssSelector": null,
+      "xpath": null,
+      "elementTag": null,
+      "elementHash": "7890123456",
+      "type": "click"
+    },
+    {
+      "description": "Enter the consultation title.",
+      "output": null,
+      "cssSelector": null,
+      "xpath": null,
+      "elementTag": null,
+      "elementHash": "1234567890",
+      "type": "input",
+      "value": "{title}"
+    },
+    {
+      "description": "Enter the detailed PC build requirements and budget in the content area.",
+      "output": null,
+      "cssSelector": null,
+      "xpath": null,
+      "elementTag": null,
+      "elementHash": "0987654321",
+      "type": "input",
+      "value": "{content}"
+    },
+    {
+      "description": "Submit the post.",
+      "output": null,
+      "cssSelector": null,
+      "xpath": null,
+      "elementTag": null,
+      "elementHash": "5432109876",
+      "type": "click"
+    }
+  ],
+  "input_schema": [
+    {
+      "name": "title",
+      "type": "string",
+      "format": null,
+      "description": "The title of the PC build consultation post.",
+      "required": true,
+      "enum": null
+    },
+    {
+      "name": "content",
+      "type": "string",
+      "format": null,
+      "description": "The detailed description of the PC's purpose, budget, and specific requirements.",
+      "required": true,
+      "enum": null
+    }
+  ]
+}

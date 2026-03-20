@@ -1,0 +1,44 @@
+{
+  "tool_analysis": "1. **Step Analysis**: The agent needs to navigate to the Danawa forum, select a specific hardware category (like CPU or Motherboard) to filter the posts, and then retrieve the results.\n2. **Task Definition**: Create a tool that filters the Danawa product forum by a user-provided category name.\n3. **Action Plan**: \n    - Navigate to the base forum URL.\n    - Use an agent step to handle the category selection because the category list is dynamic and text-based, making it more robust than a hardcoded selector that might change or require complex indexing.\n    - Wait for the AJAX/page update.\n    - Extract the resulting discussion list.\n4. **Variable Identification**: The primary variable is `category_name`.\n5. **Step Optimization**: I am using an 'agent' step for the category selection to avoid the 'strict mode violation' and 'missing field' errors seen in the previous attempt. The previous attempt failed because it used 'agent_task_tool_step' (which is not a valid type) and lacked required fields for the standard action types. By using the 'agent' type correctly, we ensure the tool can find the specific text 'CPU' or 'Monitor' regardless of its exact DOM position. I've also added a wait step to ensure the content loads before extraction.",
+  "name": "filter_danawa_forum_by_category",
+  "description": "Filters product forum discussions on Danawa by hardware category and provides options to reset filters or extract discussion lists.",
+  "version": "1.1.0",
+  "steps": [
+    {
+      "description": "Navigate to the Danawa product forum board.",
+      "output": null,
+      "type": "navigation",
+      "url": "https://pc26.danawa.com/bbs/?controller=board&methods=getBoardList&boardSeq=117",
+      "url_operation": null
+    },
+    {
+      "description": "Select the specified hardware category from the filter list.",
+      "output": null,
+      "type": "agent",
+      "task": "Find and click the button or link for the category '{category_name}' in the category filter section. If the category is already selected, do nothing.",
+      "max_steps": 5
+    },
+    {
+      "description": "Wait for the list to refresh after filtering.",
+      "output": null,
+      "type": "wait",
+      "seconds": 2.0
+    },
+    {
+      "description": "Extract the filtered list of forum discussions.",
+      "output": "forum_discussions",
+      "type": "extract_page_content",
+      "goal": "Extract the titles, authors, and dates of the forum posts currently visible in the list."
+    }
+  ],
+  "input_schema": [
+    {
+      "name": "category_name",
+      "type": "string",
+      "format": null,
+      "description": "The hardware category to filter by (e.g., 'CPU', '\uba54\uc778\ubcf4\ub4dc', '\ubaa8\ub2c8\ud130').",
+      "required": true,
+      "enum": null
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "test_inputs": {
+    "test_inputs": {
+      "category_name": "CPU",
+      "search_keyword": "Core i9-14900K",
+      "filter_spec": "\uc778\ud154",
+      "sort_option": "\ub0ae\uc740\uac00\uaca9\uc21c"
+    },
+    "explanation": "Extracted from the agent's navigation to the CPU category, the text entered into the search bar, and the selection of the 'Intel' filter and 'Lowest Price' sort option.",
+    "extraction_method": "llm_based"
+  }
+}

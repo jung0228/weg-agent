@@ -1,0 +1,95 @@
+{
+  "tool_analysis": "The tool automates the process of building a PC on Danawa's virtual estimate service. \n1. **Navigation**: Starts at the official PC builder URL.\n2. **Component Selection**: Uses agentic steps to handle the dynamic nature of the search results and category switching for CPU, Motherboard, and Memory. This is more robust than static selectors which change based on search results.\n3. **Validation & Persistence**: Executes the 'Compatibility Check', 'Save', and 'Share' actions which were specifically requested in the goal.\n4. **Optimization**: While some UI clicks could be mapped to hashes, the search-and-add flow is highly dynamic (AJAX-heavy), making the 'agent' type more reliable for finding the correct 'Add' button relative to a specific search result.\n5. **Variables**: Parameterized the component names to allow users to build different configurations.",
+  "name": "danawa_pc_builder",
+  "description": "Builds a virtual PC estimate on Danawa by selecting components, checking compatibility, and saving/sharing the list.",
+  "version": "1.0.0",
+  "steps": [
+    {
+      "description": "Navigate to Danawa Virtual Estimate page.",
+      "output": null,
+      "type": "navigation",
+      "url": "https://shop.danawa.com/virtualestimate/?controller=estimateMain&methods=index",
+      "url_operation": null
+    },
+    {
+      "description": "Search and add the specified CPU to the estimate.",
+      "output": null,
+      "type": "agent",
+      "task": "In the CPU category, search for '{cpu_name}' and click the 'Add' button for the best match.",
+      "max_steps": 5
+    },
+    {
+      "description": "Search and add the specified Motherboard to the estimate.",
+      "output": null,
+      "type": "agent",
+      "task": "Switch to the Motherboard category, search for '{motherboard_name}', and click the 'Add' button for the best match.",
+      "max_steps": 5
+    },
+    {
+      "description": "Search and add the specified Memory to the estimate.",
+      "output": null,
+      "type": "agent",
+      "task": "Switch to the Memory category, search for '{memory_name}', and click the 'Add' button for the best match.",
+      "max_steps": 5
+    },
+    {
+      "description": "Click the compatibility check button to ensure parts work together.",
+      "output": null,
+      "cssSelector": null,
+      "xpath": null,
+      "elementTag": null,
+      "elementHash": "compatibility_check_btn",
+      "type": "click"
+    },
+    {
+      "description": "Click the save button to store the current estimate.",
+      "output": null,
+      "cssSelector": null,
+      "xpath": null,
+      "elementTag": null,
+      "elementHash": "save_estimate_btn",
+      "type": "click"
+    },
+    {
+      "description": "Click the share/link button to generate a URL for the estimate.",
+      "output": null,
+      "cssSelector": null,
+      "xpath": null,
+      "elementTag": null,
+      "elementHash": "share_link_btn",
+      "type": "click"
+    },
+    {
+      "description": "Extract the final estimate details and the shareable link.",
+      "output": "estimate_summary",
+      "type": "extract_page_content",
+      "goal": "Extract the list of added components, total price, and the generated sharing URL."
+    }
+  ],
+  "input_schema": [
+    {
+      "name": "cpu_name",
+      "type": "string",
+      "format": null,
+      "description": "The name or model of the CPU to search for and add.",
+      "required": true,
+      "enum": null
+    },
+    {
+      "name": "motherboard_name",
+      "type": "string",
+      "format": null,
+      "description": "The name or model of the Motherboard to search for and add.",
+      "required": true,
+      "enum": null
+    },
+    {
+      "name": "memory_name",
+      "type": "string",
+      "format": null,
+      "description": "The name or model of the Memory (RAM) to search for and add.",
+      "required": true,
+      "enum": null
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "test_inputs": {
+    "test_inputs": {
+      "search_target": "...",
+      "search_keyword": "...",
+      "shop_filter_name": "..."
+    },
+    "explanation": "...",
+    "extraction_method": "llm_based"
+  }
+}

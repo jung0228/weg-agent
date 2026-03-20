@@ -1,0 +1,99 @@
+{
+  "tool_analysis": "1. **Step Analysis**: The tool navigates to Danawa's PC assembly gallery, applies search filters (range and keyword), filters by shop, sorts the results, and extracts the build data.\n2. **Task Definition**: Create a searchable interface for Danawa's completed PC build gallery.\n3. **Action Plan**: \n    - Navigate to the gallery URL.\n    - Use deterministic `select_change` and `input` for the primary search bar.\n    - Use `agent` tasks for shop selection and sorting as these are often dynamic lists or custom styled buttons that are more reliable via natural language targeting.\n    - Extract the final list of results.\n4. **Variable Identification**: \n    - `search_keyword`: The text to search for.\n    - `search_range`: Dropdown for where to search.\n    - `shop_name`: To filter by specific vendors.\n    - `sort_by`: To order results.\n5. **Optimization**: Combined the search input and Enter key press. Used agent steps for the shop filter because the list of shops can be long and dynamic. Navigation is used as the entry point.",
+  "name": "search_danawa_pc_builds",
+  "description": "Search and browse completed PC assembly builds on Danawa Shop by shop name, component, or specific search terms with filtering and sorting options.",
+  "version": "1.0.0",
+  "steps": [
+    {
+      "description": "Navigate to the Danawa Assembly Gallery page.",
+      "output": null,
+      "type": "navigation",
+      "url": "https://shop.danawa.com/virtualestimate/?controller=assemblyGallery&methods=index",
+      "url_operation": null
+    },
+    {
+      "description": "Select the search range (e.g., Title, Content, All).",
+      "output": null,
+      "cssSelector": null,
+      "xpath": "//select[@id='searchRange']",
+      "elementTag": null,
+      "elementHash": null,
+      "type": "select_change",
+      "selectedText": "{search_range}"
+    },
+    {
+      "description": "Enter the search keyword for components or build titles.",
+      "output": null,
+      "cssSelector": null,
+      "xpath": "//input[@id='searchText']",
+      "elementTag": null,
+      "elementHash": null,
+      "type": "input",
+      "value": "{search_keyword}"
+    },
+    {
+      "description": "Press Enter to execute the search.",
+      "output": null,
+      "cssSelector": null,
+      "xpath": "//input[@id='searchText']",
+      "elementTag": null,
+      "elementHash": null,
+      "type": "key_press",
+      "key": "Enter"
+    },
+    {
+      "description": "Filter by a specific assembly shop if provided.",
+      "output": null,
+      "type": "agent",
+      "task": "Click on the shop filter button for '{shop_name}' if it exists in the shop list sidebar.",
+      "max_steps": 3
+    },
+    {
+      "description": "Apply sorting preference.",
+      "output": null,
+      "type": "agent",
+      "task": "Select the sorting option '{sort_by}' (e.g., Newest, Views).",
+      "max_steps": 3
+    },
+    {
+      "description": "Extract the list of PC builds including titles, prices, and shop names.",
+      "output": "pc_build_results",
+      "type": "extract_page_content",
+      "goal": "Extract all PC build listings including title, price, shop name, and date."
+    }
+  ],
+  "input_schema": [
+    {
+      "name": "search_keyword",
+      "type": "string",
+      "format": null,
+      "description": "The search query (e.g., component name, build title)",
+      "required": false,
+      "enum": null
+    },
+    {
+      "name": "search_range",
+      "type": "string",
+      "format": null,
+      "description": "Search range: '\uc804\uccb4' (All), '\uc81c\ubaa9' (Title), '\ub0b4\uc6a9' (Content), '\uc791\uc131\uc790' (Author)",
+      "required": false,
+      "enum": null
+    },
+    {
+      "name": "shop_name",
+      "type": "string",
+      "format": null,
+      "description": "Filter by specific assembly shop name (e.g., '\ucef4\ud4e8\uc874')",
+      "required": false,
+      "enum": null
+    },
+    {
+      "name": "sort_by",
+      "type": "string",
+      "format": null,
+      "description": "Sort order: '\ucd5c\uc2e0\uc21c' (Newest), '\uc870\ud68c\uc21c' (Most Viewed), '\ucd94\ucc9c\uc21c' (Most Recommended)",
+      "required": false,
+      "enum": null
+    }
+  ]
+}

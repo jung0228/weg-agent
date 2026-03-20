@@ -1,7 +1,102 @@
 # weg-agent
 
-다나와에서 예산에 맞는 PC 견적을 자동으로 찾아주는 웹 에이전트.
-**Planner-Executor + AgentBrain + WALT-style Tools + Pure Vision + Factual Knowledge Base**
+다나와 PC 견적 자동화 + WebVoyager 스타일 평가 파이프라인.
+**Planner-Executor + browser-use + WALT Tool Discovery + Eval (Booking / KTX)**
+
+---
+
+## 최신 구조 (v2 — browser-use 기반)
+
+```
+main_bu.py                  ← browser-use 기반 에이전트 (권장)
+├─ browser-use Agent        ← DOM 인덱싱 기반 (좌표 클릭 X)
+│    AgentBrain: evaluation_previous_goal + memory + next_goal + plan_update + action
+│    Loop Detection: 동일 액션 5/8/12회 반복 시 자동 nudge
+├─ tools_bu.py              ← Danawa 전용 커스텀 툴 (browser-use BUPage 어댑터)
+│    add_product / get_products / select_category / filter / sort_cheapest 등
+└─ executor.py              ← add_product 성공 시 즉시 auto-DONE (무한루프 방지)
+
+3가지 비교 모드:
+  python main_bu.py --task office_50                  # 툴O + 구조설명O (기본)
+  python main_bu.py --task office_50 --no-context     # 툴O + 구조설명X
+  python main_bu.py --task office_50 --no-tools       # 툴X (browser-use 기본만)
+```
+
+---
+
+## 평가 파이프라인
+
+### Booking.com 평가 (WebVoyager 방식)
+
+```bash
+# 에이전트 실행 (기본 10개 샘플)
+python eval_booking_run.py
+python eval_booking_run.py --n 2              # 2개만
+python eval_booking_run.py --task_ids Booking--0,Booking--3
+
+# LLM-as-Judge (GPT-4V → 스크린샷 + 답변 보고 SUCCESS/NOT SUCCESS 판정)
+python eval_booking_judge.py \
+  --result_dir eval_results/<dir_name> \
+  --model gemini-3-flash-preview \
+  --base_url https://gateway.letsur.ai/v1 \
+  --api_key <LETSUR_API_KEY>
+```
+
+**평가 흐름**:
+1. 에이전트 실행 → 매 스텝 스크린샷 저장 → `done` 액션으로 최종 답변
+2. Judge: 마지막 스크린샷 3장 + 태스크 + 답변 → GPT-4V 판정
+3. 스크린샷이 진실 (답변 ≠ 스크린샷이면 스크린샷 우선)
+
+### KTX / ITX / 무궁화호 평가 (Korail)
+
+```bash
+python eval_korail_run.py                          # 기본 3개 태스크
+python eval_korail_run.py --task_ids ktx_0         # 특정 태스크만
+
+# dry_run 모드 (기본): 결제 직전 스크린샷 + 중단
+# --purchase 플래그: 실제 예매 (실제 돈 나감 — 주의)
+```
+
+**태스크 형식** (WebVoyager 자연어 스타일):
+```
+"수원에서 부산으로 가는 2026년 4월 10일 KTX 승차권을 예매하고
+ 열차 번호, 출발/도착 시각을 알려주세요."
+```
+
+---
+
+## WALT Tool Discovery
+
+### Danawa 자동 탐색
+
+```bash
+OPENAI_API_KEY=<letsur_key> \
+OPENAI_BASE_URL=https://gateway.letsur.ai/v1 \
+walt discover --url https://shop.danawa.com/virtualestimate/ \
+  --output ./walt-tools/danawa \
+  --llm gemini-3-flash-preview \
+  --planner-llm gemini-3-flash-preview
+```
+
+**생성된 툴** (`walt-tools/danawa/`):
+
+| 툴 | 설명 |
+|----|------|
+| `search_pc_components` | 키워드/카테고리/스펙 필터로 부품 검색 |
+| `manage_estimate_cart` | 견적 담기, 호환성 체크, 저장/공유 |
+| `search_assembly_gallery` | 완성 빌드 갤러리 검색 |
+| `search_purchase_reviews` | 구매 후기 검색/필터 |
+| `filter_community_forum` | 하드웨어 카테고리별 포럼 필터 |
+| `post_pc_consultation` | PC 구매 상담 글쓰기 |
+| `browse_events` | 이벤트/프로모션 탐색 |
+
+**WALT 동작 원리**:
+1. **Stage 1**: browser-use 에이전트가 실제로 사이트 탐색 (카테고리 클릭, 필터 확인 등)
+2. **Stage 2**: 탐색 결과로 API 스펙 JSON 설계
+3. **Stage 3**: 각 툴을 에이전트가 직접 실연(demonstration) → Selector 기록 → `tool.json` 생성
+4. 이후 실행은 **결정론적** (저장된 Selector 재사용, 매번 LLM 추론 불필요)
+
+---
 
 ---
 

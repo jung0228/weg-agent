@@ -1,0 +1,10 @@
+{
+  "test_inputs": {
+    "test_inputs": {
+      "title": "...",
+      "content": "..."
+    },
+    "explanation": "Extracted from the agent's final tool call after it processed the user's requirements for [specific purpose].",
+    "extraction_method": "llm_based"
+  }
+}

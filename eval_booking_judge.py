@@ -200,13 +200,16 @@ def main():
                         help="스크린샷 첨부 수 (기본: 3)")
     args = parser.parse_args()
 
-    api_key = args.api_key or os.environ.get("OPENAI_API_KEY", "")
+    api_key = (args.api_key
+               or os.environ.get("OPENAI_API_KEY", "")
+               or os.environ.get("LETSUR_API_KEY", ""))
     if not api_key:
-        raise ValueError("OPENAI_API_KEY가 설정되지 않았습니다.")
+        raise ValueError("API 키가 설정되지 않았습니다. LETSUR_API_KEY 또는 OPENAI_API_KEY 환경변수를 설정하세요.")
 
+    base_url = args.base_url or os.environ.get("OPENAI_BASE_URL", "")
     client_kwargs: dict = {"api_key": api_key}
-    if args.base_url:
-        client_kwargs["base_url"] = args.base_url
+    if base_url:
+        client_kwargs["base_url"] = base_url
     client = OpenAI(**client_kwargs)
 
     result_dir = Path(args.result_dir)
