@@ -31,7 +31,7 @@ load_dotenv()
 # ── 설정 ──────────────────────────────────────────────────────────
 BOOKING_DATA = Path("webvoyager_ref/data/WebVoyager_data.jsonl")
 BASE_URL = "https://gateway.letsur.ai/v1"
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemini-3-flash-preview"
 MAX_STEPS = 25
 
 AGENT_TASK_TEMPLATE = """\
