@@ -36,7 +36,7 @@ load_dotenv()
 
 KORAIL_URL = "https://www.korail.com/ticket/main"
 BASE_URL = "https://gateway.letsur.ai/v1"
-DEFAULT_MODEL = "gemini-2.5-pro-preview-03-25"
+DEFAULT_MODEL = "gemini-2.5-flash"
 MAX_STEPS = 30
 
 # ── 태스크 정의 ──────────────────────────────────────────────────
