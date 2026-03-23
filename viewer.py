@@ -62,42 +62,34 @@ def build_task_html(task_dir: Path, result: dict) -> str:
     shots = screenshot_list(task_dir)
     metas = step_metadata(task_dir)
 
-    # 스텝별 상세 정보 패널 (JSON)
-    step_panels = ""
+    # 스텝별 데이터 JS 배열로 embed
+    step_data_js = "["
     for i, meta in enumerate(metas):
         sd = task_dir / f"S{i+1}"
-        acc = (sd / "acc_tree.txt").read_text(encoding="utf-8") if (sd / "acc_tree.txt").exists() else ""
-        user_p = (sd / "user_prompt.txt").read_text(encoding="utf-8") if (sd / "user_prompt.txt").exists() else ""
-        # acc_tree 요소 수
-        elem_count = len([l for l in acc.splitlines() if l.strip().startswith("[")])
-        action_raw = meta.get("action", "").replace("<", "&lt;").replace(">", "&gt;")
-        memory_raw = (meta.get("memory", "") or "").replace("<", "&lt;")
-        goal_raw = (meta.get("next_goal", "") or "").replace("<", "&lt;")
-        eval_raw = (meta.get("evaluation_previous_goal", "") or "").replace("<", "&lt;")
-        acc_html = acc.replace("<", "&lt;").replace(">", "&gt;")
+        acc = (sd / "acc_tree.txt").read_text(encoding="utf-8") if (sd / "acc_tree.txt").exists() else "(없음)"
+        import json as _json
+        step_data_js += _json.dumps({
+            "eval":   meta.get("evaluation_previous_goal", "") or "—",
+            "memory": meta.get("memory", "") or "—",
+            "goal":   meta.get("next_goal", "") or "—",
+            "action": meta.get("action", "") or "—",
+            "acc":    acc,
+        }, ensure_ascii=False) + ","
+    step_data_js += "]"
 
-        step_panels += f"""
-        <div class="step-panel" id="panel-{i}" style="display:{'block' if i==0 else 'none'}">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
-            <div>
-              <div class="label">🎯 Eval / Memory / Goal</div>
-              <div style="font-size:12px;line-height:1.7;background:#f8fafc;border-radius:6px;padding:10px">
-                <b style="color:#64748b">Eval:</b> {eval_raw or '—'}<br>
-                <b style="color:#64748b">Memory:</b> {memory_raw or '—'}<br>
-                <b style="color:#64748b">Goal:</b> {goal_raw or '—'}
-              </div>
-              <div class="label" style="margin-top:10px">🤖 Action</div>
-              <pre style="font-size:11px;background:#0f172a;color:#7dd3fc;border-radius:6px;
-                          padding:10px;overflow-x:auto;white-space:pre-wrap">{action_raw or '—'}</pre>
-            </div>
-            <div>
-              <div class="label">📡 Acc Tree ({elem_count}개 요소)</div>
-              <pre style="font-size:11px;background:#f8fafc;border:1px solid #e2e8f0;
-                          border-radius:6px;padding:10px;overflow-y:auto;max-height:220px;
-                          white-space:pre-wrap">{acc_html or '—'}</pre>
-            </div>
-          </div>
-        </div>"""
+    # 오른쪽 패널 (고정 HTML, JS로 내용 교체)
+    step_panels = f"""
+    <div class="card" style="padding:14px">
+      <div class="label">🧠 Eval / Memory / Goal</div>
+      <div id="right-emg" style="font-size:12px;line-height:1.8;background:#f8fafc;
+           border-radius:6px;padding:10px;min-height:80px">(스텝 선택)</div>
+      <div class="label" style="margin-top:12px">🤖 Action</div>
+      <pre id="right-action" style="font-size:11px;background:#0f172a;color:#7dd3fc;
+           border-radius:6px;padding:10px;white-space:pre-wrap;min-height:48px;margin:0">(스텝 선택)</pre>
+    </div>
+    <script>
+    const STEP_DATA = {step_data_js};
+    </script>"""
 
     # 스크린샷 슬라이더 아이템
     slide_items = ""
@@ -147,17 +139,30 @@ def build_task_html(task_dir: Path, result: dict) -> str:
          style="font-size:12px;color:#3b82f6">{result.get("web","")}</a>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 360px;gap:16px">
+    <!-- 3컬럼: 스크린샷 | AX Tree | Eval+Action -->
+    <div style="display:grid;grid-template-columns:380px 1fr 1fr;gap:12px;align-items:start">
 
-      <!-- 스크린샷 슬라이더 -->
-      <div class="card">
-        <div class="label">🖼 스텝별 스크린샷 ({len(shots)}장)</div>
+      <!-- 왼쪽: 스크린샷 고정폭 -->
+      <div class="card" style="padding:14px">
+        <div class="label">🖼 스크린샷 ({len(shots)}장)</div>
         <div class="slider-wrap">
           <div class="slides">{"빈 화면" if not slide_items else slide_items}</div>
           <button class="nav-btn left" onclick="move(-1)">‹</button>
           <button class="nav-btn right" onclick="move(1)">›</button>
         </div>
         <div class="thumbs">{thumb_items}</div>
+      </div>
+
+      <!-- 가운데: AX Tree -->
+      <div class="card" style="padding:14px" id="ax-panel">
+        <div class="label">📡 AX Tree</div>
+        <pre id="ax-content" style="font-size:11px;line-height:1.5;background:#f8fafc;
+             border:1px solid #e2e8f0;border-radius:6px;padding:10px;
+             overflow-y:auto;height:520px;white-space:pre-wrap;margin:0">(스텝 선택)</pre>
+      </div>
+
+      <!-- 오른쪽: Eval + Memory + Goal + Action -->
+      <div>
         {step_panels}
       </div>
 
@@ -196,15 +201,26 @@ def build_task_html(task_dir: Path, result: dict) -> str:
     function goTo(n) {{
       slides[cur].classList.remove('active');
       thumbs[cur].classList.remove('active');
-      const prevPanel = document.getElementById('panel-' + cur);
-      if (prevPanel) prevPanel.style.display = 'none';
       cur = (n + slides.length) % slides.length;
       slides[cur].classList.add('active');
       thumbs[cur].classList.add('active');
       thumbs[cur].scrollIntoView({{block:'nearest',inline:'center'}});
-      const nextPanel = document.getElementById('panel-' + cur);
-      if (nextPanel) nextPanel.style.display = 'block';
+      // AX Tree 업데이트
+      const d = STEP_DATA[cur] || {{}};
+      const ax = document.getElementById('ax-content');
+      if (ax) ax.textContent = d.acc || '(없음)';
+      // Eval/Memory/Goal 업데이트
+      const emg = document.getElementById('right-emg');
+      if (emg) emg.innerHTML =
+        '<b style="color:#64748b">Eval:</b> ' + (d.eval||'—') + '<br>' +
+        '<b style="color:#64748b">Memory:</b> ' + (d.memory||'—') + '<br>' +
+        '<b style="color:#64748b">Goal:</b> ' + (d.goal||'—');
+      // Action 업데이트
+      const act = document.getElementById('right-action');
+      if (act) act.textContent = d.action || '—';
     }}
+    // 첫 스텝 초기화
+    goTo(0);
     function move(d) {{ goTo(cur + d); }}
     document.addEventListener('keydown', e => {{
       if (e.key === 'ArrowRight') move(1);
