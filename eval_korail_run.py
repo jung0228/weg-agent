@@ -219,6 +219,12 @@ async def run_task(task: dict, task_dir: Path, llm, dry_run: bool) -> dict:
         final_answer = history.final_result() or ""
         is_done = history.is_done()
         save_artifacts(task, history, task_dir)
+        # 스텝별 구조화 저장 (S1/, S2/, ...)
+        try:
+            from step_logger import save_run_steps
+            save_run_steps(agent, task_dir, task["ques"])
+        except Exception as _e:
+            print(f"    [step_logger] {_e}")
 
     result = {
         "task_id": task["id"],
