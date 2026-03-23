@@ -1,0 +1,12 @@
+{
+  "test_inputs": {
+    "test_inputs": {
+      "search_keyword": "...",
+      "search_range": "...",
+      "shop_name": "...",
+      "sort_by": "..."
+    },
+    "explanation": "Values extracted from the agent's interaction with the [Specific Page/Component] during the execution summary.",
+    "extraction_method": "llm_based"
+  }
+}

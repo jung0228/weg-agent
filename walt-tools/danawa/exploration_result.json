@@ -1,0 +1,153 @@
+{
+    "tools": [
+        {
+            "name": "search_pc_components",
+            "start_url": "https://shop.danawa.com/virtualestimate/?controller=estimateMain&methods=index",
+            "description": "Search and filter PC components by keyword, category, and technical specifications.",
+            "elements": [
+                {
+                    "type": "input",
+                    "purpose": "enter product name or keyword"
+                },
+                {
+                    "type": "button",
+                    "purpose": "select category (CPU, RAM, GPU, etc.)"
+                },
+                {
+                    "type": "checkbox",
+                    "purpose": "filter by manufacturer or specific technical specs"
+                },
+                {
+                    "type": "select",
+                    "purpose": "sort results",
+                    "options": [
+                        "Popularity",
+                        "Newest",
+                        "Lowest Price",
+                        "Highest Price"
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "manage_estimate_cart",
+            "start_url": "https://shop.danawa.com/virtualestimate/?controller=estimateMain&methods=index",
+            "description": "Add components to the virtual estimate, check compatibility, and save or share the list.",
+            "elements": [
+                {
+                    "type": "button",
+                    "purpose": "add selected product to estimate"
+                },
+                {
+                    "type": "button",
+                    "purpose": "check component compatibility"
+                },
+                {
+                    "type": "button",
+                    "purpose": "save current estimate"
+                },
+                {
+                    "type": "button",
+                    "purpose": "share estimate via link or capture"
+                }
+            ]
+        },
+        {
+            "name": "post_pc_consultation",
+            "start_url": "https://pc26.danawa.com/bbs/?controller=board&methods=getBoardList&boardSeq=115",
+            "description": "Create a new post to ask for advice or feedback on a PC build estimate.",
+            "elements": [
+                {
+                    "type": "button",
+                    "purpose": "click 'Write' (\uae00\uc4f0\uae30) to start a new post"
+                },
+                {
+                    "type": "input",
+                    "purpose": "enter consultation title"
+                },
+                {
+                    "type": "textarea",
+                    "purpose": "describe the purpose and budget of the PC"
+                }
+            ]
+        },
+        {
+            "name": "search_assembly_gallery",
+            "start_url": "https://shop.danawa.com/virtualestimate/?controller=assemblyGallery&methods=index",
+            "description": "Browse and search for completed PC builds by shop or specific component names.",
+            "elements": [
+                {
+                    "type": "button",
+                    "purpose": "filter by assembly shop"
+                },
+                {
+                    "type": "select",
+                    "purpose": "search range",
+                    "options": [
+                        "Product Name",
+                        "Title + Content",
+                        "Order Number"
+                    ]
+                },
+                {
+                    "type": "input",
+                    "purpose": "enter search term"
+                }
+            ]
+        },
+        {
+            "name": "filter_community_forum",
+            "start_url": "https://pc26.danawa.com/bbs/?controller=board&methods=getBoardList&boardSeq=117",
+            "description": "Filter product forum discussions by specific hardware categories.",
+            "elements": [
+                {
+                    "type": "button",
+                    "purpose": "select hardware category (e.g., CPU, Motherboard, Monitor)"
+                },
+                {
+                    "type": "button",
+                    "purpose": "reset category filters"
+                }
+            ]
+        },
+        {
+            "name": "search_purchase_reviews",
+            "start_url": "https://pc26.danawa.com/bbs/?controller=boardReview&methods=reviewList",
+            "description": "Search and filter user purchase reviews by shop or product name.",
+            "elements": [
+                {
+                    "type": "button",
+                    "purpose": "filter reviews by specific seller/shop"
+                },
+                {
+                    "type": "select",
+                    "purpose": "search criteria",
+                    "options": [
+                        "Product Name",
+                        "Author",
+                        "Order Number"
+                    ]
+                },
+                {
+                    "type": "input",
+                    "purpose": "enter search keyword"
+                }
+            ]
+        },
+        {
+            "name": "browse_events",
+            "start_url": "https://pc26.danawa.com/bbs/?controller=board&methods=getBoardList&boardSeq=122",
+            "description": "View and filter ongoing or ended promotional events.",
+            "elements": [
+                {
+                    "type": "button",
+                    "purpose": "filter by 'Ongoing' or 'Ended' status"
+                },
+                {
+                    "type": "button",
+                    "purpose": "share event details"
+                }
+            ]
+        }
+    ]
+}

@@ -1,0 +1,167 @@
+{
+  "url": "https://shop.danawa.com/virtualestimate/?controller=estimateMain&methods=index&marketPlaceSeq=16",
+  "regions": [
+    {
+      "name": "PC 주요구성 패널",
+      "location": "오른쪽 (x≈1148, 스크롤 필요)",
+      "description": "dd.category_XXX.pd_item 버튼 목록 — 클릭 시 가운데에 해당 카테고리 제품 표시. 부품 담기면 버튼 아래 제품명 표시",
+      "elements": [
+        {
+          "name": "카테고리 버튼",
+          "selector": "dd[class*='category_'].pd_item > a.pd_item_title",
+          "description": "onclick='category(ID,2)' — TOOL select_category 사용 (ID 매핑 내장)",
+          "verified": true
+        },
+        {
+          "name": "카테고리 ID 매핑",
+          "selector": "JS: category(ID, 2)",
+          "description": "CPU=873, 쿨러/튜닝=887, 메인보드=875, 메모리=874, 그래픽카드=876, SSD=32617, HDD=877, 케이스=879, 파워=880",
+          "verified": true
+        },
+        {
+          "name": "현재 선택된 카테고리",
+          "selector": "dd[class*='category_'].select.pd_item",
+          "description": "선택됨 클래스: .select 추가됨",
+          "verified": true
+        },
+        {
+          "name": "견적카트 패널",
+          "selector": ".estimate_folder_wrap",
+          "description": "담긴 부품 목록 컨테이너, 스크롤 가능",
+          "verified": true
+        }
+      ]
+    },
+    {
+      "name": "제품 목록 영역",
+      "location": "가운데 (x≈100~950)",
+      "description": "선택 카테고리 제품 검색·필터·목록 표시. 상단 2~3개는 광고(recom_area)",
+      "elements": [
+        {
+          "name": "검색창",
+          "selector": "#searchProduct",
+          "description": "placeholder='상품명을 검색하세요.' — 모델명 입력 후 Enter",
+          "verified": true
+        },
+        {
+          "name": "제품 행 (비광고)",
+          "selector": "tr.productList_XXXXX:not(.recom_area)",
+          "description": "실제 제품 데이터 행 — TOOL get_products가 자동 수집",
+          "verified": true
+        },
+        {
+          "name": "광고/추천 제품 행",
+          "selector": "tr.recom_area.productList_XXXXX",
+          "description": "상단 광고 제품 — TOOL이 자동 필터링하므로 신경 쓸 필요 없음",
+          "verified": true
+        },
+        {
+          "name": "담기 버튼",
+          "selector": ".btn_choice2.wishAction",
+          "description": "jQuery 이벤트 기반 — DOM .click()만 작동, 좌표 클릭 금지",
+          "verified": true
+        },
+        {
+          "name": "낮은 가격순 정렬",
+          "selector": "li > a (텍스트: '낮은 가격순')",
+          "description": "정렬 탭 — TOOL sort_cheapest 사용",
+          "verified": true
+        }
+      ]
+    },
+    {
+      "name": "상단 헤더 및 네비게이션",
+      "location": "상단",
+      "description": "로고, 통합 검색창, 서비스 바로가기 및 주요 PC 카테고리 메뉴",
+      "elements": []
+    },
+    {
+      "name": "프로모션 및 배너",
+      "location": "가운데(상부)",
+      "description": "이벤트 광고 및 추천 게임별 PC 구성 바로가기 슬라이드",
+      "elements": []
+    },
+    {
+      "name": "상품 검색 및 목록",
+      "location": "왼쪽/가운데(하부)",
+      "description": "부품별 상세 검색 필터와 선택한 카테고리의 상품 리스트가 표시되는 영역",
+      "elements": []
+    },
+    {
+      "name": "견적 바구니 및 카테고리 선택",
+      "location": "오른쪽",
+      "description": "현재 담은 부품 목록(견적서) 확인 및 조립할 PC 부품 카테고리(CPU, 메인보드 등) 선택 창",
+      "elements": []
+    }
+  ],
+  "workflow": [
+    "TOOL select_category \"CPU\"   ← 오른쪽 패널에서 카테고리 선택",
+    "TOOL search \"Celeron G6900\"   ← 검색창에 모델명 입력 + 엔터",
+    "TOOL sort_cheapest             ← 낮은 가격순 정렬",
+    "TOOL get_products              ← 비광고 제품 목록 확인 (n 결정용)",
+    "TOOL add_product N             ← n번째 비광고 제품 담기",
+    "DONE \"... | 부품:X | 이름:Y | 가격:Z\""
+  ],
+  "quirks": [
+    "담기 버튼(.btn_choice2.wishAction)은 jQuery 리스너 — Playwright 좌표 클릭 실패, JS .click()만 동작",
+    "광고 제품(tr.recom_area)은 목록 상단 2~3개 — TOOL이 자동 제외하므로 번호 그대로 사용 가능",
+    "X(삭제) 버튼도 작아서(~20px) 좌표 클릭 실패 — TOOL remove_part \"카테고리\" 사용",
+    "검색 후 제품이 안 나오면 모델명 단순화 (브랜드 제거, 규격만 입력)"
+  ],
+  "discovered_facts": [
+    "검색어 'i3-12100' 입력 시 검색창 우측의 돋보기 버튼이 붉은색으로 활성화됨",
+    "검색 결과로 총 36개의 제품이 노출되며, 그 중 2개는 '애드리더' 광고 상품임",
+    "각 상품 우측 하단에는 견적 바구니에 넣기 위한 '담기' 버튼이 총 36개 존재함",
+    "상단 정렬 기준은 인기상품순, 신상품순, 낮은 가격순, 높은 가격순, 상품명순으로 총 5개가 제공됨",
+    "검색 후 제품 리스트 상단에 '결과 내 검색' 버튼과 체크박스 옵션 필터가 유지됨",
+    "화면 중앙에 떠 있던 이벤트 팝업 창이 검색 과정 혹은 이후에 닫혀 리스트 확인이 용이해짐",
+    "'i3-12100' 검색 시 제품 36개 (광고 2개 포함)",
+    "검색 결과에서 .btn_choice2.wishAction 버튼 36개 확인됨"
+  ],
+  "state_transitions": [
+    {
+      "trigger": "카테고리 'CPU' 클릭",
+      "from_state": "기본 PC견적 페이지 로딩 상태 (첫 번째 항목인 CPU가 기본 선택됨)",
+      "to_state": "CPU 카테고리 내 제품 리스트가 최신순 혹은 인기순으로 갱신됨",
+      "key_finding": "우측 'PC 주요구성' 리스트에서 CPU 항목이 빨간색으로 활성화되며, 중앙에 인텔 7시리즈 및 5시리즈 등 CPU 제품 목록 34개가 표시됨"
+    },
+    {
+      "trigger": "카테고리 '메인보드' 클릭",
+      "from_state": "CPU 제품 목록과 CPU 전용 상세 옵션 필터가 노출된 상태",
+      "to_state": "메인보드 제품 목록과 제조사/칩셋/폼팩터 등 전용 필터로 교체됨",
+      "key_finding": "우측 메뉴의 활성 탭이 '메인보드'로 이동하고, 중앙 리스트에 MSI/ASRock 등의 메인보드 제품 33개가 나타남"
+    },
+    {
+      "trigger": "카테고리 '메모리' 클릭",
+      "from_state": "메인보드 제품 목록이 노출되어 있는 상태",
+      "to_state": "메모리 제품 목록 표시 및 특정 브랜드 프로모션 팝업(이벤트) 레이어 생성",
+      "key_finding": "중앙에 메모리 제품 36개가 로드됨과 동시에 'APACER, AGI 메모리 구매 시 기프티콘 증정' 이벤트 팝업이 화면 중앙에 오버레이됨"
+    },
+    {
+      "trigger": "카테고리 'SSD' 클릭",
+      "from_state": "이전 카테고리 또는 초기 상태",
+      "to_state": "SSD 제품 목록 표시 (공통 패턴 적용)",
+      "key_finding": "우측 'PC 주요구성' 내비게이션 클릭 시 해당 카테고리가 빨간색 배경으로 활성화되며, 중앙 영역의 [상세 옵션 필터]와 [제품 리스트]가 해당 부품군에 맞게 즉시 동기화되어 변경됨"
+    },
+    {
+      "trigger": "카테고리 '케이스' 클릭",
+      "from_state": "이전 카테고리 또는 초기 상태",
+      "to_state": "케이스 제품 목록 표시 (공통 패턴 적용)",
+      "key_finding": "우측 'PC 주요구성' 내비게이션 클릭 시 해당 카테고리가 빨간색 배경으로 활성화되며, 중앙 영역의 [상세 옵션 필터]와 [제품 리스트]가 해당 부품군에 맞게 즉시 동기화되어 변경됨"
+    },
+    {
+      "trigger": "카테고리 '파워' 클릭",
+      "from_state": "이전 카테고리 또는 초기 상태",
+      "to_state": "파워 제품 목록 표시 (공통 패턴 적용)",
+      "key_finding": "우측 'PC 주요구성' 내비게이션 클릭 시 해당 카테고리가 빨간색 배경으로 활성화되며, 중앙 영역의 [상세 옵션 필터]와 [제품 리스트]가 해당 부품군에 맞게 즉시 동기화되어 변경됨"
+    }
+  ],
+  "scroll_areas": [
+    {
+      "name": "전체 페이지",
+      "location": "가운데",
+      "axis": "세로",
+      "what_appears": "메모리 상품 리스트 하단 품목(ESSENCORE, 삼성전자, G.SKILL, TeamGroup 등)과 오른쪽 하단의 견적 총 합계 금액 및 구매하기 버튼 영역"
+    }
+  ]
+}

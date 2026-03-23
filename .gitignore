@@ -4,3 +4,7 @@ __pycache__/
 results/
 .venv/
 venv/
+eval_results/
+walt-tools/danawa/logs/
+webvoyager_ref/
+.gitignore_check

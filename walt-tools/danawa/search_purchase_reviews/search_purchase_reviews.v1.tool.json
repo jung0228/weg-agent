@@ -1,0 +1,84 @@
+{
+  "tool_analysis": "1. **Step Analysis**: The tool navigates to the Danawa purchase review board, selects a search category (like shop name or product name), enters a keyword, and optionally filters by a specific seller button before extracting the results.\n2. **Task Definition**: Create a searchable interface for Danawa user reviews with support for keyword search and shop-specific filtering.\n3. **Action Plan**: \n    - Navigate to the base review URL.\n    - Use `select_change` for the search category dropdown.\n    - Use `input` and `key_press` for the keyword search.\n    - Use an `agent` step for the shop filter buttons as they are dynamic and numerous.\n    - Use `extract_page_content` to get the final list.\n4. **Variable Identification**: \n    - `search_target`: Maps to the dropdown (All, Product, Shop).\n    - `search_keyword`: The text string for the search.\n    - `shop_filter_name`: The specific shop name to click in the UI filter list.\n5. **Step Optimization**: Direct navigation to the review list is used. Search interactions are deterministic. The shop filter is handled by an agent because the list of shops is dynamic and requires visual/text matching.",
+  "name": "danawa_review_search",
+  "description": "Search and filter user purchase reviews on Danawa by shop name, product name, or specific sellers.",
+  "version": "1.0.0",
+  "steps": [
+    {
+      "description": "Navigate to the Danawa board review list page.",
+      "output": null,
+      "type": "navigation",
+      "url": "https://pc26.danawa.com/bbs/?controller=boardReview&methods=reviewList",
+      "url_operation": null
+    },
+    {
+      "description": "Select the search criteria from the dropdown.",
+      "output": null,
+      "cssSelector": null,
+      "xpath": "//*[@id=\"searchTarget\"]",
+      "elementTag": null,
+      "elementHash": null,
+      "type": "select_change",
+      "selectedText": "{search_target}"
+    },
+    {
+      "description": "Enter the search keyword into the search input field.",
+      "output": null,
+      "cssSelector": null,
+      "xpath": "//*[@id=\"searchKeyword\"]",
+      "elementTag": null,
+      "elementHash": null,
+      "type": "input",
+      "value": "{search_keyword}"
+    },
+    {
+      "description": "Press Enter to execute the search.",
+      "output": null,
+      "cssSelector": null,
+      "xpath": "//*[@id=\"searchKeyword\"]",
+      "elementTag": null,
+      "elementHash": null,
+      "type": "key_press",
+      "key": "Enter"
+    },
+    {
+      "description": "If a specific shop filter is requested, use the agent to find and click the corresponding shop button in the filter list.",
+      "output": null,
+      "type": "agent",
+      "task": "Find and click the filter button for the shop named '{shop_filter_name}' in the seller/shop filter section.",
+      "max_steps": 5
+    },
+    {
+      "description": "Extract the filtered review list results.",
+      "output": "review_results",
+      "type": "extract_page_content",
+      "goal": "Extract all review titles, shop names, product names, and dates from the search results."
+    }
+  ],
+  "input_schema": [
+    {
+      "name": "search_target",
+      "type": "string",
+      "format": null,
+      "description": "The search category (e.g., '\uc804\uccb4' for All, '\uc0c1\ud488\uba85' for Product Name, '\uc5c5\uccb4\uba85' for Shop Name)",
+      "required": false,
+      "enum": null
+    },
+    {
+      "name": "search_keyword",
+      "type": "string",
+      "format": null,
+      "description": "The search keyword to filter reviews",
+      "required": false,
+      "enum": null
+    },
+    {
+      "name": "shop_filter_name",
+      "type": "string",
+      "format": null,
+      "description": "Filter reviews by a specific seller or shop name using the shop filter button",
+      "required": false,
+      "enum": null
+    }
+  ]
+}

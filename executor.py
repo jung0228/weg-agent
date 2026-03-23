@@ -12,77 +12,66 @@ from som import perceive, ScreenState
 from actions import parse_action, execute, Action
 from memory import WorkingMemory, try_parse_part
 from tools import execute_tool
+from knowledge import DanawaKnowledge, BASE_KNOWLEDGE, load_knowledge
 
 
-MAX_EXEC_STEPS = 12
+MAX_EXEC_STEPS = 15
 
 
 _EXEC_SYSTEM_TMPL = """\
-당신은 웹 브라우저를 픽셀 좌표로 제어하는 에이전트입니다.
-스크린샷을 보고 클릭/입력할 위치의 좌표를 직접 출력합니다.
+당신은 웹 브라우저를 시각적으로 제어하는 에이전트입니다.
+스크린샷을 관찰하고, 필요한 곳을 클릭/입력해서 목표를 달성합니다.
+
+{knowledge_context}
 
 {memory_context}
 
 ## 현재 목표
 {goal}
 
-## 다나와 PC 견적 툴 UI 패턴
-1. 오른쪽 "PC 주요구성" 패널에 CPU·메인보드·메모리·SSD·케이스·파워 카테고리 있음
-2. 카테고리 클릭 → 가운데 영역에 제품 검색/목록 표시
-3. 검색어는 브랜드/모델명 (예: "i3-12100", "H610", "DDR4 8GB") — 용도어("사무용") X
+## 액션 형식
 
-## 액션 형식 — 두 가지 방식
-
-### 1. TOOL (권장 — DOM 기반, 신뢰성 높음)
-TOOL select_category "CPU"     ← 카테고리 선택 (CPU/메인보드/메모리/SSD/케이스/파워)
-TOOL search "i3-12100"         ← 검색창에 쿼리 입력 + 엔터
-TOOL sort_cheapest             ← 낮은 가격순 정렬
-TOOL get_products              ← 현재 제품 목록 확인 (광고 자동 제외)
-TOOL add_product 1             ← n번째 제품 담기 (광고 자동 스킵, 1-indexed)
-TOOL remove_part "메인보드"    ← 오른쪽 패널에서 해당 카테고리 부품 삭제
-TOOL get_cart                  ← 현재 오른쪽 패널 견적 현황 확인
-
-### 2. 좌표 기반 (TOOL로 처리 안 되는 경우)
-CLICK (x, y)
-TYPE_ENTER (x, y) "텍스트"
-SCROLL DOWN  /  SCROLL UP
+CLICK (x, y)              ← 픽셀 좌표 클릭
+CLICK [N]                 ← 스크린샷 번호 배지([N]) 클릭 — 번호가 보일 때 권장
+TYPE_ENTER (x, y) "텍스트" ← 클릭 후 입력 + Enter
+TYPE_ENTER [N] "텍스트"    ← 번호 배지 입력창 선택 후 텍스트 입력 + Enter
+TYPE_CSS "#셀렉터" "텍스트" ← CSS 셀렉터로 입력창 직접 특정 후 텍스트 입력 + Enter (좌표 불확실 시 권장)
+SCROLL DOWN / SCROLL UP
 GOTO https://...
+SEARCH "쿼리"             ← 네이버 검색 (현재 페이지에서 막혔을 때)
 BACK
 WAIT
+
+TOOL search "검색어"      ← 다나와: #searchProduct 입력 + btn_search 클릭 (Enter 없이 — 팝업 방지)
+TOOL sort_cheapest        ← 다나와: JS로 '낮은 가격순' 정렬 (좌표 클릭보다 신뢰성 높음)
+TOOL get_products         ← 다나와: 광고 제외 제품 목록 텍스트 반환 (이름·가격 확인용)
+TOOL add_product N        ← 다나와: N번째 제품 '담기' 버튼 JS 클릭 (좌표 클릭 불가 — 반드시 TOOL 사용)
 
 DONE "요약"
 DONE "요약 | 부품:카테고리 | 이름:제품명 | 가격:숫자"
 
-## 권장 워크플로우 (부품 하나 추가)
-1. TOOL select_category "CPU"
-2. TOOL search "i3-12100"
-3. TOOL sort_cheapest
-4. TOOL get_products          ← 목록 보고 n 결정 (광고 이미 제외됨)
-5. TOOL add_product 1         ← 반드시 TOOL로. 좌표 클릭 금지
-6. DONE "... | 부품:CPU | 이름:... | 가격:..."
-
-## 핵심 규칙
-- **TOOL get_products 이후에는 반드시 TOOL add_product N** 으로 담기
-  - 추가 필터(체크박스, 라디오버튼)를 좌표로 클릭하지 말 것
-  - 제품 목록에 원하는 제품이 있으면 바로 add_product 실행
-- **부품 삭제 시 반드시 TOOL remove_part "카테고리"** — X 버튼 좌표 클릭 금지
-- **견적 현황 확인은 TOOL get_cart** — 스크린샷으로 추론하지 말 것
-- 검색어에 용량/규격을 포함시켜 처음부터 좁혀라
-  예: "SSD 256GB", "DDR4 8GB", "H610 메인보드"
-- 카테고리 선택 후 필터를 따로 클릭할 필요 없음 — 검색으로 해결
-
 ## 출력 형식 (반드시 이 순서)
 Eval: <이전 액션 결과 — Success / Failed / N/A>
 Memory: <기억할 정보 (제품명, 가격 등). 없으면 ->
-Predict: <이 액션 실행 시 예상 결과 — 확신 없으면 다른 액션 선택>
-Goal: <다음 액션 의도 한 문장>
-Action: <위 형식 중 하나>
+Predict: <이 액션 실행 시 예상 결과>
+Goal: <다음 액션 의도>
+Action: <위 액션 중 하나>
 
-## 주의사항
-- 뷰포트: {width}×{height}px — 이 범위 안의 좌표만 사용
+## 핵심 규칙
+- **스크린샷을 꼼꼼히 보고** 어떤 UI 요소가 있는지 파악한 후 액션 결정
+- **번호 배지([N])가 스크린샷에 있으면** CLICK [N] 사용 — 좌표보다 정확함
+- **목표에 예산이 명시된 경우** 해당 금액 이하 제품만 선택
+- **같은 액션을 반복하지 말 것** — 실패 시 다른 방법 시도
+- **정렬 완료 후 제품이 보이면 즉시 클릭** — 정렬 버튼 재클릭 금지
+- **다나와 부품 담기**: 반드시 `TOOL add_product 1` 사용 — 좌표 클릭으로는 담기 불가
+- **다나와 검색창 입력**: 좌표 추론 대신 `TYPE_CSS "#searchProduct" "검색어"` 사용
+- **다나와 정렬**: `TOOL sort_cheapest` 사용 (좌표 클릭보다 신뢰성 높음)
+- **다나와 부품 선택 흐름**: TYPE_CSS 검색 → TOOL sort_cheapest → TOOL get_products → TOOL add_product 1 → DONE
+- **막혔을 때**: SCROLL DOWN으로 더 보거나, BACK으로 이전 페이지, SEARCH로 우회
+- 뷰포트: {width}×{height}px
 - 한 번에 액션 하나만
-- DONE은 목표가 완전히 달성됐을 때만
-- WAIT은 로딩 중일 때만
+- DONE은 목표 완전 달성 시만
+- WAIT은 페이지 로딩 중일 때만
 """
 
 
@@ -107,9 +96,11 @@ class StepResult:
 
 
 class Executor:
-    def __init__(self, client: openai.OpenAI, model: str):
+    def __init__(self, client: openai.OpenAI, model: str, knowledge: DanawaKnowledge | None = None):
         self.client = client
         self.model = model
+        # 지식이 주입되지 않으면 캐시 또는 BASE_KNOWLEDGE 사용
+        self.knowledge = knowledge or load_knowledge()
 
     async def run(
         self,
@@ -124,22 +115,35 @@ class Executor:
         """
         history: list[dict] = []
         exec_steps: list[ExecStep] = []
-
-        system_prompt = _EXEC_SYSTEM_TMPL.format(
-            memory_context=memory.to_context(),
-            goal=goal,
-            width=1280,
-            height=800,
-        )
+        knowledge_ctx = self.knowledge.to_context()
 
         prev_action_raw = ""
+        prev_observation: str = ""
         same_action_count = 0
         consec_fail_count = 0
+        last_add_product_obs = ""  # 마지막 add_product 성공 관측값 (DONE 루프 탈출용)
 
         for step_num in range(1, max_steps + 1):
-            # OBSERVE
-            state: ScreenState = await perceive(page)
+            # OBSERVE — page crash 방어 (sort_cheapest 후 페이지 재로드 시 TargetClosedError)
+            try:
+                state: ScreenState = await perceive(page)
+            except Exception as _e:
+                if "closed" in str(_e).lower() or "TargetClosed" in type(_e).__name__:
+                    # 페이지 재탐색 후 재시도
+                    try:
+                        await page.goto(
+                            "https://shop.danawa.com/virtualestimate/",
+                            wait_until="domcontentloaded",
+                            timeout=30000,
+                        )
+                        await page.wait_for_timeout(3000)
+                        state: ScreenState = await perceive(page)
+                    except Exception:
+                        break  # 복구 실패 시 이 executor run 종료
+                else:
+                    raise
             system_prompt_with_vp = _EXEC_SYSTEM_TMPL.format(
+                knowledge_context=knowledge_ctx,
                 memory_context=memory.to_context(),
                 goal=goal,
                 width=state.width,
@@ -147,8 +151,8 @@ class Executor:
             )
             print(f"    [{step_num}] vision | {state.width}×{state.height}", end="")
 
-            # THINK — 스크린샷 + URL/Title만 전달
-            user_content = _build_message(state, step_num)
+            # THINK — 스크린샷 + 이전 액션 결과 전달
+            user_content = _build_message(state, step_num, prev_observation)
             history.append({"role": "user", "content": user_content})
 
             response = self.client.chat.completions.create(
@@ -163,17 +167,63 @@ class Executor:
 
             # ACT
             action_error = False
-            try:
-                action = parse_action(action_raw)
-                if action.type == "tool":
-                    # TOOL 명령 → tools.py 디스패처로 위임
-                    observation = await execute_tool(action.value or "", action.tool_args or "", page)
-                else:
-                    observation = await execute(action, page)
-            except Exception as e:
+            if not action_raw.strip():
                 action = None
                 action_error = True
-                observation = f"에러: {e}"
+                # add_product 성공 후 빈 액션 반복 → DONE 힌트에 제품 정보 포함
+                if last_add_product_obs:
+                    observation = (
+                        f"Action: 필드가 비어있습니다. 제품을 이미 담았습니다: {last_add_product_obs}. "
+                        f"반드시 DONE \"목표완료 | 부품:카테고리명 | 이름:제품명 | 가격:숫자\" 형식으로 출력하세요."
+                    )
+                else:
+                    observation = (
+                        "Action: 필드가 비어있습니다. "
+                        "목표 달성 시 반드시 DONE \"요약 | 부품:카테고리 | 이름:제품명 | 가격:숫자\" 를 출력하세요. "
+                        "아직 미완료라면 다음 CLICK 또는 SCROLL 액션을 출력하세요."
+                    )
+            else:
+                try:
+                    # SOM 번호 [N] → 픽셀 좌표 변환 (SOM_MODE=1일 때만 실질 동작)
+                    resolved_raw = _resolve_som_refs(action_raw, state.elements_by_id)
+                    if resolved_raw != action_raw:
+                        print(f"      SOM: {action_raw!r} → {resolved_raw!r}")
+                    action = parse_action(resolved_raw)
+                    if action.type == "tool":
+                        # TOOL 명령 → tools.py 디스패처로 위임
+                        observation = await execute_tool(action.value or "", action.tool_args or "", page)
+                        # add_product 성공 시 즉시 자동 완료 (LLM second-guess 방지)
+                        if (action.value or "").lower() == "add_product" and "담기 완료" in observation:
+                            last_add_product_obs = observation
+                            # ExecStep 기록 후 즉시 반환 — remove_part 호출 차단
+                            exec_steps.append(ExecStep(
+                                step=step_num,
+                                eval_prev=eval_prev,
+                                memory_note=memory_note,
+                                predict=predict,
+                                goal_intent=goal_intent,
+                                action_raw=action_raw,
+                                action=action,
+                                observation=observation,
+                                screenshot_b64=state.screenshot_b64,
+                            ))
+                            # goal에서 카테고리 추출 → try_parse_part 호환 포맷 생성
+                            import re as _re_cat
+                            _cat_m = _re_cat.search(r'(CPU|메인보드|메모리|RAM|SSD|HDD|케이스|파워|그래픽카드)', goal)
+                            _cat = _cat_m.group(1) if _cat_m else "부품"
+                            auto_summary = f"자동완료 | 부품:{_cat} | {observation.replace('담기 완료 | ', '')}"
+                            part = try_parse_part(auto_summary)
+                            if part:
+                                cat, name, price = part
+                                memory.add_part(cat, name, price)
+                                print(f"    → [add_product 즉시완료] {cat} / {name} / {price:,}원")
+                            return StepResult(success=True, summary=auto_summary, steps=exec_steps)
+                    else:
+                        observation = await execute(action, page)
+                except Exception as e:
+                    action = None
+                    action_error = True
+                    observation = f"에러: {e}"
 
             exec_steps.append(ExecStep(
                 step=step_num,
@@ -187,6 +237,8 @@ class Executor:
                 screenshot_b64=state.screenshot_b64,
             ))
 
+            prev_observation = observation  # 다음 스텝 메시지에 포함
+
             mode = "tool" if (action and action.type == "tool") else "vision"
             predict_short = f" → {predict[:35]}" if predict else ""
             print(f" | {mode} | {eval_prev[:12]} | {action_raw[:45]}{predict_short}")
@@ -196,6 +248,15 @@ class Executor:
                 same_action_count += 1
                 if same_action_count >= 3:
                     print(f"    ⚠ 동일 액션 {same_action_count}회 반복")
+                # add_product 성공 후 빈 Action 2회 이상 반복 → 강제 자동 완료
+                if not action_raw.strip() and last_add_product_obs and same_action_count >= 2:
+                    auto_summary = f"자동완료(DONE루프탈출) | {last_add_product_obs}"
+                    part = try_parse_part(auto_summary)
+                    if part:
+                        cat, name, price = part
+                        memory.add_part(cat, name, price)
+                        print(f"    → [자동완료] 부품 추가: {cat} / {name} / {price:,}원")
+                    return StepResult(success=True, summary=auto_summary, steps=exec_steps)
             else:
                 same_action_count = 0
             prev_action_raw = action_raw
@@ -225,23 +286,86 @@ class Executor:
                 "content": f"Observation: {observation}",
             })
 
+        # 실패 요약 — 마지막 시도한 액션들 포함 (review_plan이 다른 전략 선택에 활용)
+        last_actions = [s.action_raw for s in exec_steps[-4:] if s.action_raw]
+        tried = " → ".join(a[:30] for a in last_actions) if last_actions else "없음"
         return StepResult(
             success=False,
-            summary=f"최대 {max_steps}스텝 초과 — 미완료",
+            summary=f"최대 {max_steps}스텝 초과 — 미완료. 마지막 시도: {tried}",
             steps=exec_steps,
         )
 
 
 # ── 헬퍼 ──────────────────────────────────────────────────────────
 
-def _build_message(state: ScreenState, step: int) -> list[dict]:
+def _resolve_som_refs(action_raw: str, elements_by_id: dict) -> str:
+    """
+    SOM 번호 참조를 픽셀 좌표로 변환한다.
+
+    예:
+      "CLICK [5]"              → "CLICK (640, 320)"
+      "TYPE_ENTER [3] \"텍스트\"" → "TYPE_ENTER (200, 150) \"텍스트\""
+
+    elements_by_id가 비어있거나 해당 번호가 없으면 원본 반환.
+    """
+    if not elements_by_id:
+        return action_raw
+
+    # CLICK [N]
+    import re as _re
+    def _replace_click(m):
+        n = int(m.group(1))
+        el = elements_by_id.get(n)
+        if el:
+            return f"CLICK ({el['x']}, {el['y']})"
+        return m.group(0)  # 번호 없으면 원본 유지
+
+    action_raw = _re.sub(r"CLICK\s*\[(\d+)\]", _replace_click, action_raw, flags=_re.I)
+
+    # TYPE_ENTER [N] "text"
+    def _replace_type_enter(m):
+        n = int(m.group(1))
+        text = m.group(2)
+        el = elements_by_id.get(n)
+        if el:
+            return f'TYPE_ENTER ({el["x"]}, {el["y"]}) "{text}"'
+        return m.group(0)
+
+    action_raw = _re.sub(
+        r'TYPE_ENTER\s*\[(\d+)\]\s*"([^"]*)"',
+        _replace_type_enter, action_raw, flags=_re.I
+    )
+
+    # TYPE [N] "text"
+    def _replace_type(m):
+        n = int(m.group(1))
+        text = m.group(2)
+        el = elements_by_id.get(n)
+        if el:
+            return f'TYPE ({el["x"]}, {el["y"]}) "{text}"'
+        return m.group(0)
+
+    action_raw = _re.sub(
+        r'TYPE\s*\[(\d+)\]\s*"([^"]*)"',
+        _replace_type, action_raw, flags=_re.I
+    )
+
+    return action_raw
+
+
+def _build_message(state: ScreenState, step: int, prev_observation: str = "") -> list[dict]:
     """스크린샷 + 페이지 정보를 LLM 메시지로 조립한다."""
-    text_block = (
-        f"## Step {step}\n"
+    text_block = f"## Step {step}\n"
+    if prev_observation:
+        text_block += f"**이전 액션 결과**: {prev_observation}\n\n"
+    text_block += (
         f"URL: {state.page_url}\n"
         f"Title: {state.page_title}\n\n"
         f"스크린샷을 보고 좌표를 직접 추론해서 액션을 결정하세요."
     )
+    # SOM 모드: 요소 목록 첨부 (SOM_MODE=1일 때만 element_map이 채워짐)
+    if state.element_map:
+        text_block += f"\n\n{state.element_map}"
     return [
         {
             "type": "image_url",

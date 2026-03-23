@@ -1,0 +1,83 @@
+{
+  "tool_analysis": "1. **Step Analysis**: The tool navigates to the Danawa PC assembly (virtual estimate) page, selects a component category (like CPU or GPU), applies keyword searches, filters by specific technical specs or brands, and sorts the results.\n2. **Task Definition**: Create a reusable tool to find specific PC parts with precise filtering on Danawa.\n3. **Action Plan**: \n    - Navigate to the base URL.\n    - Use agent steps for category selection and filtering because the DOM structure for these filters is highly dynamic and nested within complex frames/AJAX containers.\n    - Extract the final list of products.\n4. **Variable Identification**: \n    - `category_name`: Essential to pick which part type to look for.\n    - `search_keyword`: Optional for narrowing down.\n    - `filter_spec`: To handle the 'checkbox' requirement in the goal (e.g., filtering for 'Intel' or 'DDR5').\n    - `sort_option`: To handle the 'select' requirement in the goal.\n5. **Step Optimization**: Direct URL navigation for specific categories is possible but Danawa's virtual estimate page uses internal state/JS heavily. Using an agent for the specific interactions ensures the correct category context is loaded before filtering. Extraction is the final goal.",
+  "name": "danawa_pc_component_search",
+  "description": "Search and filter PC components on Danawa by category, keyword, manufacturer, and technical specifications.",
+  "version": "1.0.0",
+  "steps": [
+    {
+      "description": "Navigate to the Danawa Virtual Estimate page.",
+      "output": null,
+      "type": "navigation",
+      "url": "https://shop.danawa.com/virtualestimate/?controller=estimateMain&methods=index",
+      "url_operation": null
+    },
+    {
+      "description": "Select the component category from the sidebar.",
+      "output": null,
+      "type": "agent",
+      "task": "Click on the category named '{category_name}' in the component selection list.",
+      "max_steps": 3
+    },
+    {
+      "description": "Enter search keyword if provided.",
+      "output": null,
+      "type": "agent",
+      "task": "If '{search_keyword}' is provided, type it into the product search box and press enter.",
+      "max_steps": 3
+    },
+    {
+      "description": "Apply technical specification or manufacturer filters.",
+      "output": null,
+      "type": "agent",
+      "task": "Find and click the checkbox or button for '{filter_spec}' in the filter options area.",
+      "max_steps": 5
+    },
+    {
+      "description": "Apply sorting to the results.",
+      "output": null,
+      "type": "agent",
+      "task": "Select '{sort_option}' from the sorting dropdown menu.",
+      "max_steps": 3
+    },
+    {
+      "description": "Extract the list of filtered PC components.",
+      "output": "component_results",
+      "type": "extract_page_content",
+      "goal": "Extract product names, specifications, and prices of the listed components."
+    }
+  ],
+  "input_schema": [
+    {
+      "name": "category_name",
+      "type": "string",
+      "format": null,
+      "description": "The PC component category to select (e.g., CPU, \uba54\uc778\ubcf4\ub4dc, \uba54\ubaa8\ub9ac, \uadf8\ub798\ud53d\uce74\ub4dc).",
+      "required": true,
+      "enum": null
+    },
+    {
+      "name": "search_keyword",
+      "type": "string",
+      "format": null,
+      "description": "Search keyword for specific products.",
+      "required": false,
+      "enum": null
+    },
+    {
+      "name": "filter_spec",
+      "type": "string",
+      "format": null,
+      "description": "Specific manufacturer or technical specification to filter by (e.g., \uc778\ud154, AMD, DDR5).",
+      "required": false,
+      "enum": null
+    },
+    {
+      "name": "sort_option",
+      "type": "string",
+      "format": null,
+      "description": "Sorting method for results (e.g., \uc778\uae30\uc0c1\ud488\uc21c, \uc2e0\uc0c1\ud488\uc21c, \ub0ae\uc740\uac00\uaca9\uc21c).",
+      "required": false,
+      "enum": null
+    }
+  ]
+}
