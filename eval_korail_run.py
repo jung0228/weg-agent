@@ -25,6 +25,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from browser_use import Agent, BrowserSession
 from browser_use.llm import ChatOpenAI
+from llm_logger import LoggingLLM
 
 load_dotenv()
 
@@ -106,7 +107,8 @@ DEFAULT_TASKS = [
 
 # ── 에이전트 프롬프트 ─────────────────────────────────────────────
 DRY_RUN_PROMPT = """\
-코레일 홈페이지({url})에서 아래 태스크를 수행해주세요.
+코레일 홈페이지 URL: {url}
+아래 태스크를 수행해주세요.
 
 태스크: {ques}
 
@@ -122,7 +124,8 @@ DRY_RUN_PROMPT = """\
 """
 
 PURCHASE_PROMPT = """\
-코레일 홈페이지({url})에서 아래 태스크를 수행해주세요.
+코레일 홈페이지 URL: {url}
+아래 태스크를 수행해주세요.
 
 태스크: {ques}
 
@@ -193,10 +196,11 @@ async def run_task(task: dict, task_dir: Path, llm, dry_run: bool) -> dict:
         password=password,
     )
 
-    browser_session = BrowserSession(headless=False)
+    browser_session = BrowserSession(headless=False, dom_highlight_elements=True)
+    logging_llm = LoggingLLM(llm, task_dir, browser_session=browser_session)
     agent = Agent(
         task=prompt,
-        llm=llm,
+        llm=logging_llm,
         browser_session=browser_session,
         use_vision=True,
         max_actions_per_step=3,
