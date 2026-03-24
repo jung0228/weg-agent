@@ -62,20 +62,40 @@ def build_task_html(task_dir: Path, result: dict) -> str:
     shots = screenshot_list(task_dir)
     metas = step_metadata(task_dir)
 
-    # 스텝별 데이터 JS 배열로 embed
+    import json as _json
+
+    # 스텝별 데이터 JS 배열로 embed (clean + som_debug 이미지 모두 포함)
     step_data_js = "["
+    has_som = False
     for i, meta in enumerate(metas):
         sd = task_dir / f"S{i+1}"
         acc = (sd / "acc_tree.txt").read_text(encoding="utf-8") if (sd / "acc_tree.txt").exists() else "(없음)"
-        import json as _json
+        clean_b64 = b64(sd / "som_image.png") if (sd / "som_image.png").exists() else ""
+        som_b64   = b64(sd / "som_debug.png") if (sd / "som_debug.png").exists() else ""
+        if som_b64:
+            has_som = True
         step_data_js += _json.dumps({
             "eval":   meta.get("evaluation_previous_goal", "") or "—",
             "memory": meta.get("memory", "") or "—",
             "goal":   meta.get("next_goal", "") or "—",
             "action": meta.get("action", "") or "—",
             "acc":    acc,
+            "img_clean": clean_b64,
+            "img_som":   som_b64,
         }, ensure_ascii=False) + ","
     step_data_js += "]"
+
+    som_toggle = ""
+    if has_som:
+        som_toggle = """
+        <div style="display:flex;gap:6px;margin-bottom:8px">
+          <button id="btn-clean" onclick="setMode('clean')"
+            style="font-size:11px;padding:3px 10px;border-radius:6px;
+                   border:1px solid #cbd5e1;cursor:pointer;background:#e2e8f0">🖼 Clean</button>
+          <button id="btn-som" onclick="setMode('som')"
+            style="font-size:11px;padding:3px 10px;border-radius:6px;
+                   border:1px solid #3b82f6;cursor:pointer;background:#dbeafe;color:#1d4ed8">🔲 SoM</button>
+        </div>"""
 
     # 오른쪽 패널 (고정 HTML, JS로 내용 교체)
     step_panels = f"""
@@ -89,9 +109,10 @@ def build_task_html(task_dir: Path, result: dict) -> str:
     </div>
     <script>
     const STEP_DATA = {step_data_js};
+    let imgMode = 'som';  // 기본: SoM
     </script>"""
 
-    # 스크린샷 슬라이더 아이템
+    # 스크린샷 슬라이더 아이템 (img src는 JS로 교체)
     slide_items = ""
     thumb_items = ""
     for i, shot in enumerate(shots):
@@ -99,7 +120,7 @@ def build_task_html(task_dir: Path, result: dict) -> str:
         img_b64 = b64(shot)
         slide_items += f"""
         <div class="slide {active}" id="slide-{i}">
-          <img src="data:image/png;base64,{img_b64}"
+          <img id="slide-img-{i}" src="data:image/png;base64,{img_b64}"
                style="width:100%;border-radius:8px;display:block" />
           <div class="step-label">Step {i+1} / {len(shots)}</div>
         </div>"""
@@ -145,6 +166,7 @@ def build_task_html(task_dir: Path, result: dict) -> str:
       <!-- 왼쪽: 스크린샷 고정폭 -->
       <div class="card" style="padding:14px">
         <div class="label">🖼 스크린샷 ({len(shots)}장)</div>
+        {som_toggle}
         <div class="slider-wrap">
           <div class="slides">{"빈 화면" if not slide_items else slide_items}</div>
           <button class="nav-btn left" onclick="move(-1)">‹</button>
@@ -198,6 +220,30 @@ def build_task_html(task_dir: Path, result: dict) -> str:
     let cur = 0;
     const slides = document.querySelectorAll('.slide');
     const thumbs = document.querySelectorAll('.thumb');
+
+    function updateSlideImage() {{
+      const d = STEP_DATA[cur] || {{}};
+      const img = document.getElementById('slide-img-' + cur);
+      if (!img) return;
+      const src = (imgMode === 'som' && d.img_som) ? d.img_som : d.img_clean;
+      if (src) img.src = 'data:image/png;base64,' + src;
+    }}
+
+    function setMode(mode) {{
+      imgMode = mode;
+      updateSlideImage();
+      const bc = document.getElementById('btn-clean');
+      const bs = document.getElementById('btn-som');
+      if (bc && bs) {{
+        bc.style.background = mode === 'clean' ? '#dbeafe' : '#e2e8f0';
+        bc.style.color      = mode === 'clean' ? '#1d4ed8' : '';
+        bc.style.borderColor= mode === 'clean' ? '#3b82f6' : '#cbd5e1';
+        bs.style.background = mode === 'som'   ? '#dbeafe' : '#e2e8f0';
+        bs.style.color      = mode === 'som'   ? '#1d4ed8' : '';
+        bs.style.borderColor= mode === 'som'   ? '#3b82f6' : '#cbd5e1';
+      }}
+    }}
+
     function goTo(n) {{
       slides[cur].classList.remove('active');
       thumbs[cur].classList.remove('active');
@@ -205,6 +251,7 @@ def build_task_html(task_dir: Path, result: dict) -> str:
       slides[cur].classList.add('active');
       thumbs[cur].classList.add('active');
       thumbs[cur].scrollIntoView({{block:'nearest',inline:'center'}});
+      updateSlideImage();
       // AX Tree 업데이트
       const d = STEP_DATA[cur] || {{}};
       const ax = document.getElementById('ax-content');
@@ -221,6 +268,7 @@ def build_task_html(task_dir: Path, result: dict) -> str:
     }}
     // 첫 스텝 초기화
     goTo(0);
+    setMode('som');  // 기본: SoM 뷰
     function move(d) {{ goTo(cur + d); }}
     document.addEventListener('keydown', e => {{
       if (e.key === 'ArrowRight') move(1);

@@ -196,8 +196,8 @@ async def run_task(task: dict, task_dir: Path, llm, dry_run: bool) -> dict:
         password=password,
     )
 
-    logging_llm = LoggingLLM(llm, task_dir)
-    browser_session = BrowserSession(headless=False)
+    browser_session = BrowserSession(headless=False, dom_highlight_elements=True)
+    logging_llm = LoggingLLM(llm, task_dir, browser_session=browser_session)
     agent = Agent(
         task=prompt,
         llm=logging_llm,

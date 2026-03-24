@@ -30,10 +30,11 @@ class LoggingLLM:
     ChatOpenAI의 모든 속성/메서드를 투명하게 위임.
     """
 
-    def __init__(self, llm, task_dir: Path):
+    def __init__(self, llm, task_dir: Path, browser_session=None):
         self._llm = llm
         self._task_dir = Path(task_dir)
         self._step = 0
+        self._browser_session = browser_session  # optional: SoM debug screenshot
 
     # ── 투명 위임 ──────────────────────────────────────────────────────
     def __getattr__(self, name: str):
@@ -49,6 +50,9 @@ class LoggingLLM:
         # ── 입력 저장 ──────────────────────────────────────────────────
         self._save_input(sd, messages)
 
+        # ── SoM 디버그 스크린샷 (add_highlights 완료 후 시점) ──────────
+        await self._save_som_debug(sd)
+
         # ── 실제 LLM 호출 ──────────────────────────────────────────────
         result = await self._llm.ainvoke(messages, output_format, **kwargs)
 
@@ -57,6 +61,18 @@ class LoggingLLM:
         self._save_output(sd, result, elapsed)
 
         return result
+
+    # ── SoM 디버그 스크린샷 ────────────────────────────────────────────
+    async def _save_som_debug(self, sd: Path) -> None:
+        """add_highlights 완료 후 시점에 스크린샷 찍어 som_debug.png 저장."""
+        if self._browser_session is None:
+            return
+        try:
+            raw = await self._browser_session.take_screenshot(full_page=False)
+            if raw:
+                (sd / "som_debug.png").write_bytes(raw)
+        except Exception:
+            pass
 
     # ── 저장 헬퍼 ─────────────────────────────────────────────────────
 

@@ -25,6 +25,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from browser_use import Agent, BrowserSession
 from browser_use.llm import ChatOpenAI
+from llm_logger import LoggingLLM
 
 load_dotenv()
 
@@ -111,11 +112,12 @@ async def run_task(task: dict, task_dir: Path, llm) -> dict:
     task_dir.mkdir(parents=True, exist_ok=True)
 
     prompt = AGENT_TASK_TEMPLATE.format(url=task["web"], task=task["ques"])
-    browser_session = BrowserSession(headless=False)
+    browser_session = BrowserSession(headless=False, dom_highlight_elements=True)
+    logging_llm = LoggingLLM(llm, task_dir, browser_session=browser_session)
 
     agent = Agent(
         task=prompt,
-        llm=llm,
+        llm=logging_llm,
         browser_session=browser_session,
         use_vision=True,
         max_actions_per_step=3,
