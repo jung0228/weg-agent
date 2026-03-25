@@ -152,9 +152,11 @@ class LoggingLLM:
         # AgentOutput 필드 추출
         eval_str = memory_str = goal_str = action_str = ""
         if completion is not None:
-            eval_str   = str(getattr(completion, "evaluation_previous_goal", "") or "")
-            memory_str = str(getattr(completion, "memory", "") or "")
-            goal_str   = str(getattr(completion, "next_goal", "") or "")
+            # AgentOutput.current_state (AgentCurrentState) 에 eval/memory/goal 있음
+            cs = getattr(completion, "current_state", completion)
+            eval_str   = str(getattr(cs, "evaluation_previous_goal", "") or "")
+            memory_str = str(getattr(cs, "memory", "") or "")
+            goal_str   = str(getattr(cs, "next_goal", "") or "")
             actions    = getattr(completion, "action", []) or []
             action_str = "\n".join(str(a) for a in actions)
 
