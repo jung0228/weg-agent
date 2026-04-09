@@ -337,11 +337,41 @@ def build_step(step_num, prompt, meta, llm, img_b64, system_prompt_html):
     else:
         in_hist = section("🕓", "Agent History", '<span style="color:#94a3b8;font-size:13px">첫 번째 스텝</span>')
 
-    # plan
+    # plan — 마커별 색상 배지로 렌더링
     plan_text = prompt.get("plan","").strip()
-    in_plan = section("📝", "Current Plan",
-        pre(plan_text), color="#fafaf9", border="#e7e5e4",
-        collapsible=True, collapsed=False) if plan_text else ""
+    if plan_text:
+        marker_cfg = {
+            "[>]": ("▶ 진행중", "#fef3c7", "#92400e"),
+            "[x]": ("✓ 완료",  "#dcfce7", "#15803d"),
+            "[-]": ("- 스킵",  "#f1f5f9", "#94a3b8"),
+            "[ ]": ("○ 대기",  "#f8fafc", "#64748b"),
+        }
+        plan_rows = ""
+        for line in plan_text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            matched = False
+            for marker, (label, bg, fg) in marker_cfg.items():
+                if line.startswith(marker):
+                    rest = esc(line[len(marker):].strip())
+                    plan_rows += (
+                        f'<div style="display:flex;align-items:center;gap:8px;'
+                        f'padding:6px 0;border-bottom:1px solid #f1f5f9">'
+                        f'<span style="background:{bg};color:{fg};padding:2px 7px;'
+                        f'border-radius:4px;font-size:11px;font-weight:700;'
+                        f'white-space:nowrap;font-family:monospace">{label}</span>'
+                        f'<span style="font-size:13px;color:#1e293b">{rest}</span>'
+                        f'</div>'
+                    )
+                    matched = True
+                    break
+            if not matched:
+                plan_rows += f'<div style="font-size:12px;color:#94a3b8;padding:3px 0">{esc(line)}</div>'
+        in_plan = section("📝", "Current Plan", plan_rows,
+            color="#fafaf9", border="#e7e5e4", collapsible=True, collapsed=False)
+    else:
+        in_plan = ""
 
     # browser state 요약
     bs_html = ""
