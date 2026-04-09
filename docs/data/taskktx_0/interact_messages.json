@@ -1,0 +1,70 @@
+[
+  {
+    "role": "system",
+    "content": "You are a web browsing agent for KTX reservation."
+  },
+  {
+    "role": "user",
+    "content": "Now given a task: 수원에서 대전으로 가는 2026년 4월 5일 KTX 승차권을 1명 기준으로 조회해서, 가장 빠른 열차의 출발 시각, 도착 시각, 가격을 알려주세요.  Please interact with https://www.korail.com/ticket/main and get the answer.\nObservation: please analyze the attached screenshot and give the Thought and Action."
+  },
+  {
+    "role": "assistant",
+    "content": "Thought: Initial navigation\nAction: navigate"
+  },
+  {
+    "role": "assistant",
+    "content": "Thought: Click on the departure station selection to set it to Suwon.\nAction: click"
+  },
+  {
+    "role": "assistant",
+    "content": "Thought: Select 'Suwon' (수원) as the departure station from the list.\nAction: click"
+  },
+  {
+    "role": "assistant",
+    "content": "Thought: Click on the arrival station selection button to set it to Daejeon.\nAction: click"
+  },
+  {
+    "role": "assistant",
+    "content": "Thought: Select 'Daejeon' (대전) as the arrival station.\nAction: click"
+  },
+  {
+    "role": "assistant",
+    "content": "Thought: Click on the departure date selection to set it to 2026-04-05.\nAction: click"
+  },
+  {
+    "role": "assistant",
+    "content": "Thought: Select April 5th from the calendar and set the time to 00시 if possible, then apply.\nAction: click"
+  },
+  {
+    "role": "assistant",
+    "content": "Thought: Click on the departure date selection button to reopen the calendar and set the date to 2026-04-05.\nAction: click"
+  },
+  {
+    "role": "assistant",
+    "content": "Thought: Navigate to April 2026 in the calendar and select April 5th.\nAction: click"
+  },
+  {
+    "role": "assistant",
+    "content": "Thought: Select April 5th from the calendar and adjust the time to the earliest possible before applying.\nAction: click"
+  },
+  {
+    "role": "assistant",
+    "content": "Thought: Click the '열차 조회하기' (Search Trains) button to view available KTX tickets.\nAction: click"
+  },
+  {
+    "role": "assistant",
+    "content": "Thought: Change the departure date to 2026-04-05 and search for trains.\nAction: scroll"
+  },
+  {
+    "role": "assistant",
+    "content": "Thought: Select April 5th and apply the date setting.\nAction: click"
+  },
+  {
+    "role": "assistant",
+    "content": "Thought: Report the findings for the earliest KTX train as requested.\nAction: click"
+  },
+  {
+    "role": "assistant",
+    "content": "Thought: Task completed.\nAction: ANSWER; [2026년 4월 5일 수원발 대전행 KTX 열차 조회 결과, 가장 빠른 KTX 열차 정보는 다음과 같습니다.\n\n- 열차 종류: KTX 171\n- 출발 시각: 07:26\n- 도착 시각: 08:36\n- 가격: 12,900원 (일반실 기준)]"
+  }
+]

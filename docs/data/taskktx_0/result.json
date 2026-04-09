@@ -1,0 +1,9 @@
+{
+  "task_id": "ktx_0",
+  "ques": "수원에서 대전으로 가는 2026년 4월 5일 KTX 승차권을 1명 기준으로 조회해서, 가장 빠른 열차의 출발 시각, 도착 시각, 가격을 알려주세요.",
+  "web": "https://www.korail.com/ticket/main",
+  "dry_run": true,
+  "is_done": true,
+  "final_answer": "2026년 4월 5일 수원발 대전행 KTX 열차 조회 결과, 가장 빠른 KTX 열차 정보는 다음과 같습니다.\n\n- 열차 종류: KTX 171\n- 출발 시각: 07:26\n- 도착 시각: 08:36\n- 가격: 12,900원 (일반실 기준)",
+  "elapsed_sec": 212.1
+}

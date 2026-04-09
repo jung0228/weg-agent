@@ -1,0 +1,208 @@
+
+<task>
+코레일 홈페이지 URL: https://www.korail.com/ticket/main
+아래 태스크를 수행해주세요.
+
+태스크: 수원에서 대전으로 가는 2026년 4월 5일 KTX 승차권을 1명 기준으로 조회해서, 가장 빠른 열차의 출발 시각, 도착 시각, 가격을 알려주세요.
+
+## 로그인 정보 (필요시)
+- 회원번호: 2272458057
+- 비밀번호: jung!!4771
+
+## 주의사항
+- 팝업·광고는 닫으세요.
+- **결제 버튼은 절대 누르지 마세요** (dry-run 모드).
+- 결제 직전 최종 확인 화면까지만 진행하고, 그 화면의 정보를 정리해 done 액션으로 보고하세요.
+- 조회 태스크라면 검색 결과를 확인하고 바로 done 액션으로 답하세요.
+
+</task>
+
+<agent_trajectory>
+Step 1:
+Actions: [
+ {
+  "navigate": {
+   "url": "https://www.korail.com/ticket/main",
+   "new_tab": false
+  }
+ }
+]
+Result 1: 🔗 Navigated to https://www.korail.com/ticket/main
+
+Step 2:
+Actions: [
+ {
+  "click": {
+   "index": 1302
+  }
+ }
+]
+Result 1: Clicked a "출발역 선택"
+
+Step 3:
+Actions: [
+ {
+  "click": {
+   "index": 1903
+  }
+ }
+]
+Result 1: Clicked a "수원"
+
+Step 4:
+Actions: [
+ {
+  "click": {
+   "index": 1308
+  }
+ }
+]
+Result 1: Clicked a "도착역 선택"
+
+Step 5:
+Actions: [
+ {
+  "click": {
+   "index": 2109
+  }
+ }
+]
+Result 1: Clicked a "대전"
+
+Step 6:
+Actions: [
+ {
+  "click": {
+   "index": 1314
+  }
+ }
+]
+Result 1: Clicked a "출발일 선택"
+
+Step 7:
+Actions: [
+ {
+  "click": {
+   "index": 2465
+  }
+ },
+ {
+  "click": {
+   "index": 2829
+  }
+ }
+]
+Result 1: Clicked a "2"
+Result 2: Clicked button "적용"
+
+Step 8:
+Actions: [
+ {
+  "click": {
+   "index": 1314
+  }
+ }
+]
+Result 1: Clicked a "출발일 선택"
+
+Step 9:
+Actions: [
+ {
+  "click": {
+   "index": 3491
+  }
+ }
+]
+Result 1: Clicked button "Next"
+
+Step 10:
+Actions: [
+ {
+  "click": {
+   "index": 3231
+  }
+ },
+ {
+  "scroll": {
+   "down": false,
+   "pages": 1.0,
+   "index": 3591
+  }
+ },
+ {
+  "click": {
+   "index": 3597
+  }
+ }
+]
+Result 1: Clicked a "1"
+Result 2: 🔍 Scrolled up element 3591 735px
+Result 3: Clicked button "적용"
+
+Step 11:
+Actions: [
+ {
+  "click": {
+   "index": 1335
+  }
+ }
+]
+Result 1: Clicked button "열차 조회하기"
+
+Step 12:
+Actions: [
+ {
+  "click": {
+   "index": 3910
+  }
+ }
+]
+Result 1: Clicked a "2026-04-01(수) 00:00" id=dateinput__input-wra
+
+Step 13:
+Actions: [
+ {
+  "click": {
+   "index": 4926
+  }
+ },
+ {
+  "click": {
+   "index": 5277
+  }
+ }
+]
+Result 1: Clicked a "5"
+Result 2: Clicked button "적용"
+
+Step 14:
+Actions: [
+ {
+  "done": {
+   "text": "2026\ub144 4\uc6d4 5\uc77c \uc218\uc6d0\ubc1c \ub300\uc804\ud589 KTX \uc5f4\ucc28 \uc870\ud68c \uacb0\uacfc, \uac00\uc7a5 \ube60\ub978 KTX \uc5f4\ucc28 \uc815\ubcf4\ub294 \ub2e4\uc74c\uacfc \uac19\uc2b5\ub2c8\ub2e4.\n\n- \uc5f4\ucc28 \uc885\ub958: KTX 171\n- \ucd9c\ubc1c \uc2dc\uac01: 07:26\n- \ub3c4\ucc29 \uc2dc\uac01: 08:36\n- \uac00\uaca9: 12,900\uc6d0 (\uc77c\ubc18\uc2e4 \uae30\uc900)",
+   "success": true,
+   "files_to_display": []
+  }
+ }
+]
+Result 1: 2026년 4월 5일 수원발 대전행 KTX 열차 조회 결과, 가장 빠른 KTX 열차 정보는 다음과 같습니다.
+
+- 열차 종류: KTX 171
+- 출발 시각: 07:26
+- 도착 시각: 08:36
+- 가격: 12,900원 (일반실 기준)
+
+</agent_trajectory>
+
+<final_result>
+2026년 4월 5일 수원발 대전행 KTX 열차 조회 결과, 가장 빠른 KTX 열차 정보는 다음과 같습니다.
+
+- 열차 종류: KTX 171
+- 출발 시각: 07:26
+- 도착 시각: 08:36
+- 가격: 12,900원 (일반실 기준)
+</final_result>
+
+10 screenshots from execution are attached.
+
+Evaluate this agent execution given the criteria and respond with the exact JSON structure requested.
