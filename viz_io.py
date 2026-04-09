@@ -279,7 +279,7 @@ def build_step_s0(task_text: str, history_text: str) -> str:
 """
 
 
-def build_step(step_num, prompt, meta, llm, img_b64, system_prompt_html):
+def build_step(step_num, prompt, meta, llm, img_b64, system_prompt_html, user_prompt_raw=""):
     # ── Judge 스텝이면 별도 렌더링 ───────────────────────────────────
     if llm.get("is_judge"):
         verdict     = llm.get("verdict","")
@@ -390,6 +390,11 @@ def build_step(step_num, prompt, meta, llm, img_b64, system_prompt_html):
         img_html = '<div style="aspect-ratio:16/9;background:#f8fafc;border:2px dashed #cbd5e1;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:13px">스크린샷 없음</div>'
     in_screenshot = section("🖼️", "SoM Screenshot (browser-use 입력 이미지)", img_html, color="white", border="#e2e8f0")
 
+    in_raw_user = section("📄", "Raw User Prompt",
+        pre(user_prompt_raw),
+        color="#fafaf9", border="#e2e8f0",
+        collapsible=True, collapsed=True) if user_prompt_raw else ""
+
     # ── [OUT] 섹션들 (metadata.json + llm_output.json) ───────────────
 
     eval_text = meta.get("evaluation_previous_goal","").strip()
@@ -493,6 +498,7 @@ def build_step(step_num, prompt, meta, llm, img_b64, system_prompt_html):
       {in_plan}
       {in_browser}
       {in_screenshot}
+      {in_raw_user}
     </div>
 
     <!-- 구분선 -->
@@ -964,7 +970,8 @@ def main():
                 img_b64 = base64.b64encode(p.read_bytes()).decode()
                 break
 
-        html = build_step(n, prompt, meta, llm, img_b64, system_prompt_text)
+        user_prompt_raw = up.read_text(encoding="utf-8") if up.exists() else ""
+        html = build_step(n, prompt, meta, llm, img_b64, system_prompt_text, user_prompt_raw=user_prompt_raw)
         steps.append({
             "num":    n,
             "goal":   meta.get("next_goal",""),
