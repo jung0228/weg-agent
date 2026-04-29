@@ -749,6 +749,7 @@ python main.py --headless
 이 저장소에는 web transition memory 연구용 메모와 baseline 스크립트도 함께 둔다.
 
 - 허브: [research_note/web_transition/README.md](research_note/web_transition/README.md)
+- 노트: `research_note/web_transition/notes/`
 - 실행 스크립트: `research_note/web_transition/baselines/`
 - 결과 저장 규칙: `eval_results/<provider>/<model>/<run_id>/<baseline>/task<example>_0/`
 

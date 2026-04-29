@@ -10,6 +10,7 @@
 
 ## 들어있는 것
 
+- `notes/`: baseline 선정, IO 예시, meeting brief, research plan, API audit, checklist
 - `baselines/`: baseline comparison용 실행 스크립트
 - `README.md`: 전체 상태 요약
 
@@ -84,4 +85,3 @@ done
 같은 입력에 대해 `Synapse / AWM / ReasoningBank / WMA / RAP / Ours`가
 무엇을 저장하고 무엇을 출력하는지 `memory_view / expected_transition / failure_signal / verification_rule`
 슬롯으로 보여주는 것이다.
-
