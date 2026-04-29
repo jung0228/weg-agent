@@ -147,6 +147,31 @@ def render_raw_file_block(label: str, content: str) -> str:
     """
 
 
+def render_baseline_output_strip(bundle: dict[str, Any]) -> str:
+    task_dir = Path(bundle.get("task_dir", ""))
+    result_json = read_text_or_placeholder(task_dir / "result.json")
+    step1_json = read_text_or_placeholder(task_dir / "S1" / "llm_output.json")
+    selected_action = str(bundle.get("result", {}).get("selected_action", "—"))
+    selection_reason = str(bundle.get("result", {}).get("selection_reason", ""))
+    return f"""
+      <section class="raw-output-strip">
+        <div class="section-label">Model raw output</div>
+        <div class="raw-output-grid">
+          <div class="raw-output-main">
+            {render_raw_file_block("result.json", result_json)}
+          </div>
+          <div class="raw-output-side">
+            {render_raw_file_block("S1/llm_output.json", step1_json)}
+            <div class="raw-output-meta">
+              <div class="raw-output-meta-row"><span>selected_action</span><b>{esc(selected_action)}</b></div>
+              <div class="raw-output-meta-row"><span>selection_reason</span><div>{esc(selection_reason or "—")}</div></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    """
+
+
 def find_task_images(task_dir: Path) -> list[Path]:
     patterns = ["screenshot*.png", "screenshot*.webp", "screenshot*.jpg", "step*.png", "*.png"]
     seen: list[Path] = []
@@ -528,6 +553,7 @@ def render_model_card(bundle: dict[str, Any], compare_root: Path) -> str:
         rel_html = str(task_dir / "viz_io.html")
         rel_result = str(task_dir / "result.json")
 
+    output_strip = render_baseline_output_strip(bundle)
     step_gallery = render_raw_step_gallery(bundle, compare_root)
     result_json = read_text_or_placeholder(task_dir / "result.json")
     metadata_json = read_text_or_placeholder(task_dir / "metadata.json")
@@ -544,6 +570,7 @@ def render_model_card(bundle: dict[str, Any], compare_root: Path) -> str:
           {chip(profile.get("family", "") or "baseline", "teal")}
           {chip(task_name, "gray")}
         </div>
+        {output_strip}
         {step_gallery}
         <details style="margin-top:12px">
           <summary>Bundle raw files</summary>
@@ -1278,6 +1305,57 @@ body {
   color: var(--muted);
 }
 
+.raw-output-strip {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.raw-output-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.raw-output-side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.raw-output-meta {
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.88);
+  padding: 12px;
+}
+
+.raw-output-meta-row + .raw-output-meta-row {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(15, 23, 42, 0.10);
+}
+
+.raw-output-meta-row span {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 800;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.raw-output-meta-row b,
+.raw-output-meta-row div {
+  display: block;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #0f172a;
+  word-break: break-word;
+}
+
 .shared-input {
   align-self: start;
 }
@@ -1546,6 +1624,7 @@ pre {
   .hero { flex-direction: column; }
   .model-strip { grid-auto-flow: row; grid-auto-columns: 1fr; }
   .pipeline-io { grid-template-columns: 1fr; }
+  .raw-output-grid { grid-template-columns: 1fr; }
   .raw-step-grid { grid-template-columns: 1fr; }
   .step-snapshot-layout { grid-template-columns: 1fr; }
   .step-snapshot-head { flex-direction: column; }
