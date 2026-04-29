@@ -980,7 +980,7 @@ def render_reasoningbank_memory_growth(bundle: dict[str, Any], compare_root: Pat
             f"""
             <li>
               <b>{esc(item["candidate_id"])}</b>
-              <span>{esc(first_line(item["memory_view"], 96))}</span>
+              <span>{esc(item["memory_view"])}</span>
             </li>
             """
             for item in cumulative_items
@@ -990,9 +990,9 @@ def render_reasoningbank_memory_growth(bundle: dict[str, Any], compare_root: Pat
             f"""
             <article class="rb-bank-card">
               <div class="rb-bank-head">
-                <div>
+              <div>
                   <div class="rb-bank-step">Step {idx}</div>
-                  <div class="rb-bank-title">{esc(candidate_id)} · {esc(first_line(memory_view, 70))}</div>
+                  <div class="rb-bank-title">{esc(candidate_id)} · {esc(memory_view)}</div>
                 </div>
                 {chip("append", "teal")}
               </div>
@@ -2280,6 +2280,8 @@ body {
   line-height: 1.35;
   font-weight: 900;
   color: #0f172a;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .rb-bank-added {
@@ -2353,10 +2355,18 @@ body {
   font-size: 12px;
   line-height: 1.55;
   color: #1e293b;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .rb-bank-list b {
   color: #0f172a;
+  display: inline-block;
+  margin-right: 6px;
+}
+
+.rb-bank-list span {
+  display: inline;
 }
 
 .reasoningbank-page .reasoningbank-summary-layout {
