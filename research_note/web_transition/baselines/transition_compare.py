@@ -14,6 +14,7 @@ puts the same task's model outputs side by side.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -63,6 +64,17 @@ def source_label(bundle: dict[str, Any]) -> str:
         metadata.get("baseline") or "default",
     ]
     return " / ".join(str(part) for part in parts if part)
+
+
+def compact_source_label(bundle: dict[str, Any]) -> str:
+    metadata = bundle.get("metadata", {})
+    baseline = str(metadata.get("baseline") or "").strip()
+    if baseline:
+        return baseline
+    model = str(metadata.get("model") or "").strip()
+    if model:
+        return model
+    return source_label(bundle)
 
 
 def group_bundles(paths: list[Path]) -> list[dict[str, Any]]:
@@ -334,6 +346,67 @@ def render_task_snapshot_panel(bundle: dict[str, Any], compare_root: Path) -> st
     """
 
 
+def render_synapse_trace(bundle: dict[str, Any]) -> str:
+    payload = bundle.get("payload", {})
+    observation = payload.get("observation", {})
+    if not isinstance(observation, dict):
+        observation = {}
+    memories = payload.get("retrieved_transition_memory", [])
+    if not isinstance(memories, list):
+        memories = []
+    result = bundle.get("result", {})
+    if not isinstance(result, dict):
+        result = {}
+
+    selected_id = str(result.get("selected_action", ""))
+    selected_eval = {}
+    for item in result.get("candidate_evaluations", []) or []:
+        if isinstance(item, dict) and str(item.get("id", "")) == selected_id:
+            selected_eval = item
+            break
+
+    abstracted_state = ", ".join(
+        part
+        for part in [
+            str(observation.get("page_type", "page")),
+            ", ".join(observation.get("visible_regions", []) or []),
+        ]
+        if part
+    )
+
+    memory_cards = render_memory_cards(payload)
+    memory_cards_html = (
+        f'<div class="stack" style="margin-top:10px">{memory_cards}</div>'
+        if memory_cards and "No retrieved memory" not in memory_cards
+        else '<div class="small" style="margin-top:10px">No retrieved trajectory exemplar was provided.</div>'
+    )
+
+    return f"""
+      <div class="card mini trace-bridge" style="margin-top:12px">
+        <div class="card-title">
+          <h4>Synapse intermediate IO</h4>
+          <span class="meta">trajectory_exemplar</span>
+        </div>
+        <div class="small"><b>Stage 1 · State abstraction</b></div>
+        <div class="small">Input: raw flight screenshot / DOM / observation.</div>
+        <div class="small">Output: {esc(abstracted_state or "compact task state")}</div>
+        <div style="height:8px"></div>
+        <div class="small"><b>Stage 2 · Exemplar retrieval</b></div>
+        <div class="small">Input: abstracted state + task metadata.</div>
+        <div class="small">Output: retrieved trajectory exemplar(s) that match this step.</div>
+        {memory_cards_html}
+        <div style="height:8px"></div>
+        <div class="small"><b>Stage 3 · TaE prompting</b></div>
+        <div class="small">Input: current history + retrieved exemplar.</div>
+        <div class="small">Output: {esc(selected_id or "selected action")} · {esc(first_line(str(selected_eval.get("expected_transition", "")), 160))}</div>
+        <div class="small">Memory view: {esc(first_line(str(selected_eval.get("memory_view", "")), 180))}</div>
+        <div style="height:8px"></div>
+        <div class="small"><b>Stage 4 · Trajectory writeback</b></div>
+        <div class="small">Output: append the successful or failed exemplar back into memory for later reuse.</div>
+      </div>
+    """
+
+
 def render_baseline_shelf() -> str:
     family_order = ["memory", "world_model"]
     family_sections = []
@@ -421,9 +494,12 @@ def render_model_card(bundle: dict[str, Any], compare_root: Path) -> str:
     metadata = bundle.get("metadata", {})
     result = bundle.get("result", {})
     task_dir = Path(bundle.get("task_dir", ""))
+    baseline_name = str(metadata.get("baseline") or "").strip() or compact_source_label(bundle)
+    profile = BASELINE_PROFILES.get(baseline_name, {})
     selected_action = result.get("selected_action", "—")
     candidate_count = len(result.get("candidate_evaluations", []) or [])
     memory_count = len(bundle.get("payload", {}).get("retrieved_transition_memory", []) or [])
+    task_name = bundle.get("task_name", "Task")
     try:
         rel_html = os.path.relpath(task_dir / "viz_io.html", start=compare_root)
         rel_result = os.path.relpath(task_dir / "result.json", start=compare_root)
@@ -431,27 +507,32 @@ def render_model_card(bundle: dict[str, Any], compare_root: Path) -> str:
         rel_html = str(task_dir / "viz_io.html")
         rel_result = str(task_dir / "result.json")
 
+    synapse_trace = render_synapse_trace(bundle) if baseline_name == "synapse" else ""
+
     return f"""
       <article class="model-card">
         <div class="card-title">
-          <h3>{esc(bundle.get("source_label", metadata.get("model", "Model")))}</h3>
+          <h3>{esc(baseline_name)}</h3>
           <span class="meta">{esc(selected_action)}</span>
         </div>
         <div class="chips" style="margin-bottom:10px">
-          {chip(metadata.get("provider", ""), "gray")}
-          {chip(metadata.get("model", ""), "indigo")}
-          {chip(metadata.get("baseline", "") or "default", "teal")}
+          {chip(profile.get("family", "") or "baseline", "teal")}
+          {chip(task_name, "gray")}
         </div>
-        <div class="small"><b>Run:</b> {esc(metadata.get("run_id", ""))}</div>
-        <div class="small"><b>Source:</b> {esc(bundle.get("source_root", ""))}</div>
-        <div class="small" style="margin-top:8px; line-height:1.7"><b>Reason:</b> {esc(first_line(result.get("selection_reason", ""), 180))}</div>
+        <div class="small"><b>Reason:</b> {esc(first_line(result.get("selection_reason", ""), 220))}</div>
         <div class="metric-row compact">
           <div class="metric"><div class="value">{candidate_count}</div><div class="label">candidates</div></div>
           <div class="metric"><div class="value">{memory_count}</div><div class="label">memory items</div></div>
         </div>
+        <div class="small" style="line-height:1.7"><b>Run:</b> {esc(metadata.get("run_id", ""))}</div>
+        {synapse_trace}
         <div class="stack" style="margin-top:12px">
           {render_step_cards(bundle)}
         </div>
+        <details style="margin-top:12px">
+          <summary>Run metadata</summary>
+          <pre>{esc(json.dumps(metadata, ensure_ascii=False, indent=2))}</pre>
+        </details>
         <div class="links" style="margin-top:12px">
           <a class="button-link" href="{esc(rel_html)}">Open task page</a>
           <a class="button-link secondary" href="{esc(rel_result)}">Raw JSON</a>
@@ -468,7 +549,13 @@ def render_task_section(group: dict[str, Any], compare_root: Path) -> str:
     shared_bundle = bundles[0]
     input_panel = render_task_snapshot_panel(shared_bundle, compare_root)
     model_cards = "".join(render_model_card(bundle, compare_root) for bundle in bundles)
-    source_labels = sorted({str(bundle.get("source_label", "")) for bundle in bundles if bundle.get("source_label")})
+    source_labels = sorted({compact_source_label(bundle) for bundle in bundles if compact_source_label(bundle)})
+    explanation = (
+        "왼쪽은 실제 S1 flight 스크린샷이고, 오른쪽은 같은 입력을 baseline별 step IO로 푼 결과다. "
+        "Synapse는 state abstraction 뒤에 exemplar trajectory를 retrieval해서 TaE prompt에 넣고, 마지막에 그 trajectory를 다시 memory로 써 둔다."
+        if group.get("task_name") == "flight"
+        else "왼쪽은 실제 S1 스크린샷이고, 오른쪽은 같은 입력을 baseline별 step IO로 푼 결과다."
+    )
     return f"""
       <section class="task-section">
         <div class="task-head">
@@ -476,6 +563,7 @@ def render_task_section(group: dict[str, Any], compare_root: Path) -> str:
             <div class="section-label">Task</div>
             <h2>{esc(group.get("task_name", "Task"))}</h2>
             <div class="small">{esc(first_line(shared_bundle.get("result", {}).get("selection_reason", "") or shared_bundle.get("payload", {}).get("task", "")))}</div>
+            <div class="small task-explainer" style="margin-top:8px; color: var(--muted); line-height:1.65">{esc(explanation)}</div>
           </div>
           <div class="chips">
             {''.join(chip(label, "gray") for label in source_labels)}
@@ -495,10 +583,10 @@ def render_compare_page(compare_root: Path, groups: list[dict[str, Any]]) -> str
     bundle_total = sum(len(group.get("bundles", [])) for group in groups)
     source_labels = sorted(
         {
-            str(bundle.get("source_label", ""))
+            compact_source_label(bundle)
             for group in groups
             for bundle in group.get("bundles", [])
-            if bundle.get("source_label")
+            if compact_source_label(bundle)
         }
     )
     task_names = [group.get("task_name", "Task") for group in groups]
@@ -890,7 +978,7 @@ body {
 
 .compare-layout {
   display: grid;
-  grid-template-columns: minmax(420px, 1.05fr) minmax(540px, 1.65fr);
+  grid-template-columns: minmax(420px, 0.92fr) minmax(700px, 1.72fr);
   gap: 16px;
   margin-top: 16px;
   align-items: start;
@@ -1164,12 +1252,10 @@ body {
 }
 
 .model-strip {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(360px, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 14px;
-  overflow-x: auto;
-  padding-bottom: 4px;
+  overflow: visible;
 }
 
 .shared-input {

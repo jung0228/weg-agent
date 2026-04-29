@@ -17,24 +17,29 @@ BASELINE_PROFILES: dict[str, dict[str, str]] = {
             {
                 "name": "State abstraction",
                 "input": "Raw computer state such as HTML, screenshot, or DOM snapshot.",
-                "output": "Concise task-relevant observation with less token cost.",
+                "output": "Concise task-relevant observation with less token cost and a trajectory anchor for retrieval.",
             },
             {
                 "name": "Exemplar retrieval",
                 "input": "Task metadata plus the abstracted state.",
-                "output": "Retrieved exemplar trajectories from exemplar memory.",
+                "output": "Retrieved exemplar trajectories from exemplar memory for the current action.",
             },
             {
                 "name": "Trajectory-as-exemplar prompting",
                 "input": "Current history together with retrieved exemplars.",
-                "output": "Next action chosen from the TaE prompt.",
+                "output": "Next action chosen from the TaE prompt together with a concrete memory-view justification.",
+            },
+            {
+                "name": "Trajectory writeback",
+                "input": "Chosen action plus the observed outcome.",
+                "output": "Stored successful or failed trajectory exemplar for later reuse.",
             },
         ],
         "memory_view_instruction": (
             "summarize the retrieved past trajectory step that is most relevant "
-            "to the current action"
+            "to the current action, and make clear which exemplar should be reused later"
         ),
-        "post_update": "append the successful or failed trajectory exemplar",
+        "post_update": "append the successful or failed trajectory exemplar with its observed outcome",
     },
     "awm": {
         "display_name": "AWM",
