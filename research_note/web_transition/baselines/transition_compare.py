@@ -733,6 +733,7 @@ def render_reasoningbank_step_row(
     compare_root: Path,
     step_dir: Path,
     asset: dict[str, str],
+    phase_label: str,
 ) -> str:
     metadata_text = read_text_or_placeholder(step_dir / "metadata.json")
     llm_output = read_text_or_placeholder(step_dir / "llm_output.json")
@@ -754,8 +755,8 @@ def render_reasoningbank_step_row(
       <article class="rb-step-row">
         <div class="rb-step-media">
           <div class="rb-step-media-head">
-            <span class="snapshot-step">{esc(step_dir.name)}</span>
-            <span class="snapshot-subtitle">{esc(candidate_id)}</span>
+            <span class="snapshot-step">{esc(phase_label)}</span>
+            <span class="snapshot-subtitle">{esc(step_dir.name)} · {esc(candidate_id)}</span>
           </div>
           <div class="rb-step-frame">
             {raw_image}
@@ -769,7 +770,7 @@ def render_reasoningbank_step_row(
           <div class="raw-step-head">
             <div>
               <div class="raw-step-step">{esc(step_dir.name)}</div>
-              <div class="raw-step-title">ReasoningBank raw step IO</div>
+              <div class="raw-step-title">{esc(phase_label)} raw step IO</div>
             </div>
             <div class="meta">no parsing</div>
           </div>
@@ -805,6 +806,105 @@ def render_reasoningbank_step_row(
     """
 
 
+def reasoningbank_phase_labels(step_count: int) -> list[str]:
+    labels = ["Retrieval", "Extraction", "Consolidation"]
+    if step_count <= len(labels):
+        return labels[:step_count]
+    extra = [f"Stage {idx}" for idx in range(4, step_count + 1)]
+    return labels + extra
+
+
+def render_reasoningbank_method_map(bundle: dict[str, Any], compare_root: Path) -> str:
+    task_dir = Path(bundle.get("task_dir", ""))
+    result_json = read_text_or_placeholder(task_dir / "result.json")
+    step_dirs = discover_step_dirs(task_dir)
+    step_assets = [ensure_reasoningbank_step_asset(bundle, compare_root, step_dir) for step_dir in step_dirs]
+    phase_labels = reasoningbank_phase_labels(len(step_dirs))
+    phase_cards = []
+    phase_definitions = [
+        (
+            "Retrieval",
+            "search relevant memory items",
+            "current task + observation + retrieved_transition_memory",
+            "memory-guided candidate selection",
+            "The blog frames retrieval as top-k search over the bank, then injection into the system instruction.",
+        ),
+        (
+            "Extraction",
+            "distill a reusable strategy from the episode",
+            "trajectory + result.json + llm_output.json + acc_tree.txt",
+            "validated reasoning item",
+            "This is where success/failure are judged and a structured reasoning item is distilled.",
+        ),
+        (
+            "Consolidation",
+            "append the new reasoning item to the bank",
+            "structured reasoning item (Title / Description / Content)",
+            "bank updated for the next task",
+            "The bank is append-only in the paper so the evolution loop stays easy to inspect.",
+        ),
+    ]
+    for idx, (phase, headline, input_text, output_text, note) in enumerate(phase_definitions):
+        step_note = phase_labels[idx] if idx < len(phase_labels) else phase
+        phase_cards.append(
+            f"""
+            <div class="rb-phase-card">
+              <div class="rb-phase-top">
+                <span class="snapshot-step">{esc(step_note)}</span>
+                <span class="rb-phase-kicker">{esc(phase)}</span>
+              </div>
+              <div class="rb-phase-title">{esc(headline)}</div>
+              <div class="rb-phase-io">
+                <div>
+                  <span>Input</span>
+                  <p>{esc(input_text)}</p>
+                </div>
+                <div>
+                  <span>Output</span>
+                  <p>{esc(output_text)}</p>
+                </div>
+              </div>
+              <div class="rb-phase-note">{esc(note)}</div>
+            </div>
+            """
+        )
+
+    schema_block = f"""
+      <div class="rb-schema-card">
+        <div class="rb-schema-head">
+          <span class="rb-phase-kicker">Memory item schema</span>
+          <span class="meta">paper-aligned</span>
+        </div>
+        <div class="rb-schema-grid">
+          <div><span>Title</span><p>핵심 전략을 압축한 식별자</p></div>
+          <div><span>Description</span><p>한 문장으로 요약한 재사용 가능한 전략</p></div>
+          <div><span>Content</span><p>reasoning steps, decision rationale, operational insight</p></div>
+        </div>
+      </div>
+    """
+
+    return f"""
+      <section class="reasoningbank-method-map">
+        <div class="section-label">Blog-aligned reasoning loop</div>
+        <p class="baseline-intro">ReasoningBank는 raw trajectory를 그대로 저장하는 대신, 검색된 메모리로 행동을 고르고, episode에서 전략을 추출해, bank에 다시 합치는 closed loop다.</p>
+        <div class="rb-phase-grid">
+          {''.join(phase_cards)}
+        </div>
+        {schema_block}
+        <details style="margin-top:14px">
+          <summary>Why this matches the blog</summary>
+          <div class="small" style="margin-top:10px; line-height:1.7">
+            retrieval는 top-k search와 system prompt 주입, extraction은 LLM-as-a-Judge와 success/failure 판정, consolidation은 append-only bank update로 읽으면 된다.
+            이 페이지는 그 흐름을 현재 task의 raw prompt/output와 함께 보여주기 위해 만든 것이다.
+          </div>
+        </details>
+        <div class="small" style="margin-top:10px; color:var(--muted)">
+          Task-level raw file: {esc(first_line(result_json, 220))}
+        </div>
+      </section>
+    """
+
+
 def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str:
     task_dir = Path(bundle.get("task_dir", ""))
     step_dirs = discover_step_dirs(task_dir)
@@ -812,12 +912,14 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
         return render_compare_page(compare_root, group_bundles([task_dir]))
 
     step_assets = [ensure_reasoningbank_step_asset(bundle, compare_root, step_dir) for step_dir in step_dirs]
+    phase_labels = reasoningbank_phase_labels(len(step_dirs))
+    method_map = render_reasoningbank_method_map(bundle, compare_root)
     task_snapshot = render_task_snapshot_panel(bundle, compare_root)
     result_json = read_text_or_placeholder(task_dir / "result.json")
     interact_messages = read_text_or_placeholder(task_dir / "interact_messages.json")
     step_rows = "".join(
-        render_reasoningbank_step_row(bundle, compare_root, step_dir, asset)
-        for step_dir, asset in zip(step_dirs, step_assets)
+        render_reasoningbank_step_row(bundle, compare_root, step_dir, asset, phase_label)
+        for step_dir, asset, phase_label in zip(step_dirs, step_assets, phase_labels)
     )
     task_name = bundle.get("task_name", "Task")
     task_text = str(bundle.get("payload", {}).get("task", ""))
@@ -859,6 +961,8 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
       </div>
     </header>
 
+    {method_map}
+
     <section class="reasoningbank-step-list">
       <div class="section-label">Step-by-step captures</div>
       <p class="baseline-intro">각 스텝은 왼쪽 이미지와 오른쪽 원문 I/O를 짝으로 붙였다. 파싱 요약은 하지 않고, prompt 파일과 llm output을 그대로 보여준다.</p>
@@ -867,32 +971,35 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
       </div>
     </section>
 
-    <section class="task-section reasoningbank-single" style="margin-top:16px">
-      <div class="task-head">
-        <div>
-          <div class="section-label">Task snapshot</div>
-          <h2>{esc(task_name)}</h2>
-          <div class="small">{esc(task_text)}</div>
-        </div>
-        <div class="chips">
-          {chip("ReasoningBank", "gray")}
-          {chip("raw prompts", "indigo")}
-        </div>
-      </div>
-      <div class="compare-layout reasoningbank-summary-layout">
-        {task_snapshot}
-        <div class="model-card reasoningbank-summary-card">
-          <div class="card-title">
-            <h3>Bundle raw files</h3>
-            <span class="meta">task-level</span>
+    <details style="margin-top:16px">
+      <summary>Task snapshot / bundle raw files</summary>
+      <div class="task-section reasoningbank-single" style="margin-top:12px">
+        <div class="task-head">
+          <div>
+            <div class="section-label">Task snapshot</div>
+            <h2>{esc(task_name)}</h2>
+            <div class="small">{esc(task_text)}</div>
           </div>
-          <div class="stack-inner">
-            {render_raw_file_block("result.json", result_json)}
-            {render_raw_file_block("interact_messages.json", interact_messages)}
+          <div class="chips">
+            {chip("ReasoningBank", "gray")}
+            {chip("raw prompts", "indigo")}
           </div>
         </div>
+        <div class="compare-layout reasoningbank-summary-layout">
+          {task_snapshot}
+          <div class="model-card reasoningbank-summary-card">
+            <div class="card-title">
+              <h3>Bundle raw files</h3>
+              <span class="meta">task-level</span>
+            </div>
+            <div class="stack-inner">
+              {render_raw_file_block("result.json", result_json)}
+              {render_raw_file_block("interact_messages.json", interact_messages)}
+            </div>
+          </div>
+        </div>
       </div>
-    </section>
+    </details>
   </div>
 </body>
 </html>
@@ -1989,6 +2096,110 @@ body {
   backdrop-filter: blur(12px);
 }
 
+.reasoningbank-method-map {
+  margin-top: 16px;
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  padding: 18px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(12px);
+}
+
+.rb-phase-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.rb-phase-card {
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 14px;
+}
+
+.rb-phase-top,
+.rb-schema-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.rb-phase-kicker {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 900;
+  color: var(--muted);
+}
+
+.rb-phase-title {
+  margin-top: 8px;
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1.35;
+  color: #0f172a;
+}
+
+.rb-phase-io {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.rb-phase-io span,
+.rb-schema-grid span {
+  display: inline-block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 800;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.rb-phase-io p,
+.rb-schema-grid p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #1e293b;
+}
+
+.rb-phase-note {
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.rb-schema-card {
+  margin-top: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 20px;
+  background: rgba(248, 250, 252, 0.95);
+  padding: 14px;
+}
+
+.rb-schema-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.rb-schema-grid > div {
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 16px;
+  background: white;
+  padding: 12px;
+}
+
 .rb-step-row {
   display: grid;
   grid-template-columns: minmax(360px, 0.92fr) minmax(560px, 1.08fr);
@@ -2246,6 +2457,9 @@ pre {
   .rb-step-media { position: static; }
   .rb-step-summary { grid-template-columns: 1fr; }
   .reasoningbank-page .reasoningbank-summary-layout { grid-template-columns: 1fr; }
+  .rb-phase-grid { grid-template-columns: 1fr; }
+  .rb-phase-io { grid-template-columns: 1fr; }
+  .rb-schema-grid { grid-template-columns: 1fr; }
 }
 """
 
