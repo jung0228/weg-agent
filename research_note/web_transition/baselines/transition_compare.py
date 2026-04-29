@@ -3170,15 +3170,13 @@ body {
 }
 
 .rb-step-row {
-  display: grid;
-  grid-template-columns: minmax(360px, 0.92fr) minmax(560px, 1.08fr);
-  gap: 14px;
-  align-items: start;
+  display: block;
+  width: 100%;
 }
 
 .rb-step-row + .rb-step-row {
-  margin-top: 14px;
-  padding-top: 14px;
+  margin-top: 16px;
+  padding-top: 16px;
   border-top: 1px solid rgba(15, 23, 42, 0.08);
 }
 
@@ -3231,6 +3229,7 @@ body {
   background: rgba(255, 255, 255, 0.90);
   padding: 14px;
   box-shadow: 0 12px 24px rgba(15, 23, 42, 0.05);
+  margin-top: 10px;
 }
 
 .rb-step-summary {
