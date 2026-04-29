@@ -741,3 +741,16 @@ python main.py --headless
 ### 장기
 - **다중 사이트 가격 비교**: 다나와 + 쿠팡 + 네이버 쇼핑 동시 비교 후 최저가 선택
 - **Web-CogReasoner 파인튜닝**: 성공 trajectory로 소형 모델(7B) 학습 → API 비용 절감
+
+---
+
+## Web Transition Memory Research
+
+이 저장소에는 web transition memory 연구용 메모와 baseline 스크립트도 함께 둔다.
+
+- 허브: [research_note/web_transition/README.md](research_note/web_transition/README.md)
+- 실행 스크립트: `research_note/web_transition/baselines/`
+- 결과 저장 규칙: `eval_results/<provider>/<model>/<run_id>/<baseline>/task<example>_0/`
+
+핵심 비교 축은 `Synapse / AWM / ReasoningBank / WMA / RAP / Ours`이고,
+모두 `memory_view / expected_transition / failure_signal / verification_rule` 슬롯으로 맞춘다.
