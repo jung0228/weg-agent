@@ -407,6 +407,187 @@ def render_synapse_trace(bundle: dict[str, Any]) -> str:
     """
 
 
+def render_step_snapshot_document(
+    bundle: dict[str, Any],
+    compare_root: Path,
+    step_index: int,
+    action: dict[str, Any],
+    evaluation: dict[str, Any],
+) -> str:
+    snapshot_asset = ensure_snapshot_asset(bundle, compare_root)
+    snapshot_kind = snapshot_asset.get("kind", "image")
+    snapshot_src = snapshot_asset.get("src", "")
+    snapshot_ref = Path(snapshot_src).name if snapshot_src else ""
+    if snapshot_kind == "html":
+        snapshot_media = (
+            f'<iframe class="snapshot-media step-snapshot-iframe" src="{esc(snapshot_ref)}" '
+            'loading="lazy"></iframe>'
+        )
+    else:
+        snapshot_media = (
+            f'<img class="snapshot-media step-snapshot-img" src="{esc(snapshot_ref)}" '
+            'alt="task snapshot" />'
+        )
+
+    selected = bundle.get("result", {}).get("selected_action") == action.get("id")
+    badge_tone = "teal" if selected else "gray"
+    task_name = esc(bundle.get("task_name", "Task"))
+    candidate_title = esc(action.get("surface", action.get("id", "")))
+    candidate_id = esc(action.get("id", "candidate"))
+    expected = esc(evaluation.get("expected_transition", "—"))
+    failure = esc(evaluation.get("failure_signal", "—"))
+    verify = esc(evaluation.get("verification_rule", "—"))
+    memory_view = esc(evaluation.get("memory_view", "—"))
+    step_label = f"Step {step_index}"
+
+    return f"""<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{task_name} · {candidate_id} · {step_label}</title>
+  <style>{CSS}
+{COMPARE_CSS}</style>
+</head>
+<body>
+  <div class="page" style="padding:24px">
+    <section class="panel step-snapshot-sheet">
+      <div class="section-label">Step screenshot</div>
+      <div class="step-snapshot-head">
+        <div>
+          <div class="chips" style="margin-bottom:8px">
+            {chip(step_label, "indigo")}
+            {chip(candidate_id, "gray")}
+            {chip(bundle.get("metadata", {}).get("baseline", "") or bundle.get("metadata", {}).get("model", ""), badge_tone)}
+          </div>
+          <h2 style="margin:0 0 6px">{esc(bundle.get("metadata", {}).get("baseline") or bundle.get("metadata", {}).get("model") or "model")} · {candidate_title}</h2>
+          <div class="small">{esc(bundle.get("task_name", "Task"))}</div>
+        </div>
+        <div class="small" style="max-width:28ch; text-align:right; line-height:1.6">
+          <b>{esc("Selected" if selected else "Candidate")}</b><br />
+          {esc(first_line(evaluation.get("memory_view", ""), 120))}
+        </div>
+      </div>
+      <div class="step-snapshot-layout">
+        <div class="snapshot-frame" style="margin:0">
+          {snapshot_media}
+        </div>
+        <div class="step-snapshot-copy">
+          <div class="small"><b>Input:</b> observation + candidate action</div>
+          <div class="small"><b>Expected transition:</b> {expected}</div>
+          <div class="small"><b>Failure signal:</b> {failure}</div>
+          <div class="small"><b>Verification rule:</b> {verify}</div>
+          <div class="small"><b>Memory view:</b> {memory_view}</div>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>
+"""
+
+
+def ensure_step_snapshot_asset(
+    bundle: dict[str, Any],
+    compare_root: Path,
+    step_index: int,
+    action: dict[str, Any],
+    evaluation: dict[str, Any],
+) -> dict[str, str]:
+    task_dir = Path(bundle.get("task_dir", ""))
+    task_name = str(bundle.get("task_name", task_dir.name or "task"))
+    source_label = str(bundle.get("source_label", "source"))
+    asset_dir = compare_root / ".web_transition_assets" / slugify(task_name) / slugify(source_label)
+    asset_dir.mkdir(parents=True, exist_ok=True)
+    html_path = asset_dir / f"step_{step_index}.html"
+    png_path = asset_dir / f"step_{step_index}.png"
+
+    html_path.write_text(
+        render_step_snapshot_document(bundle, compare_root, step_index, action, evaluation),
+        encoding="utf-8",
+    )
+    src_paths = [
+        task_dir / "result.json",
+        task_dir / "interact_messages.json",
+        task_dir / "metadata.json",
+        task_dir / "user_prompt.txt",
+        task_dir / "system_prompt.txt",
+        task_dir / "viz_io.html",
+    ]
+    source_mtime = max((p.stat().st_mtime for p in src_paths if p.exists()), default=0.0)
+    if (not png_path.exists()) or png_path.stat().st_mtime < max(source_mtime, html_path.stat().st_mtime):
+        try:
+            subprocess.run(
+                [
+                    CHROME_BIN,
+                    "--headless",
+                    "--disable-gpu",
+                    "--hide-scrollbars",
+                    "--window-size=1600,1100",
+                    f"--screenshot={png_path}",
+                    f"file://{html_path}",
+                ],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            try:
+                return {"kind": "html", "src": os.path.relpath(html_path, start=compare_root)}
+            except ValueError:
+                return {"kind": "html", "src": str(html_path)}
+
+    try:
+        return {"kind": "image", "src": os.path.relpath(png_path, start=compare_root)}
+    except ValueError:
+        return {"kind": "image", "src": str(png_path)}
+
+
+def render_step_snapshot_gallery(bundle: dict[str, Any], compare_root: Path) -> str:
+    payload = bundle.get("payload", {})
+    result = bundle.get("result", {})
+    candidate_actions = payload.get("candidate_actions", [])
+    if not isinstance(candidate_actions, list) or not candidate_actions:
+        return '<div class="small">No candidate actions.</div>'
+    evaluations = result.get("candidate_evaluations", [])
+    if not isinstance(evaluations, list):
+        evaluations = []
+    evaluation_by_id = {
+        str(item.get("id", "")): item
+        for item in evaluations
+        if isinstance(item, dict)
+    }
+
+    cards = []
+    for step_index, action in enumerate(candidate_actions, start=1):
+        if not isinstance(action, dict):
+            continue
+        candidate_id = str(action.get("id", ""))
+        evaluation = evaluation_by_id.get(candidate_id, {})
+        asset = ensure_step_snapshot_asset(bundle, compare_root, step_index, action, evaluation)
+        caption = f"Step {step_index} · {action.get('id', '')} · {action.get('surface', '')}"
+        cards.append(
+            f"""
+            <figure class="step-shot">
+              <img class="step-shot-img" src="{esc(asset.get('src', ''))}" alt="{esc(caption)}" />
+              <figcaption>
+                <div class="step-shot-caption">{esc(caption)}</div>
+                <div class="small" style="margin-top:4px">{esc(first_line(evaluation.get("expected_transition", ""), 120))}</div>
+              </figcaption>
+            </figure>
+            """
+        )
+
+    return f"""
+      <section class="step-gallery">
+        <div class="section-label">Step snapshots</div>
+        <div class="step-grid">
+          {''.join(cards)}
+        </div>
+      </section>
+    """
+
+
 def render_baseline_shelf() -> str:
     family_order = ["memory", "world_model"]
     family_sections = []
@@ -508,6 +689,7 @@ def render_model_card(bundle: dict[str, Any], compare_root: Path) -> str:
         rel_result = str(task_dir / "result.json")
 
     synapse_trace = render_synapse_trace(bundle) if baseline_name == "synapse" else ""
+    step_gallery = render_step_snapshot_gallery(bundle, compare_root)
 
     return f"""
       <article class="model-card">
@@ -526,9 +708,7 @@ def render_model_card(bundle: dict[str, Any], compare_root: Path) -> str:
         </div>
         <div class="small" style="line-height:1.7"><b>Run:</b> {esc(metadata.get("run_id", ""))}</div>
         {synapse_trace}
-        <div class="stack" style="margin-top:12px">
-          {render_step_cards(bundle)}
-        </div>
+        {step_gallery}
         <details style="margin-top:12px">
           <summary>Run metadata</summary>
           <pre>{esc(json.dumps(metadata, ensure_ascii=False, indent=2))}</pre>
@@ -551,10 +731,10 @@ def render_task_section(group: dict[str, Any], compare_root: Path) -> str:
     model_cards = "".join(render_model_card(bundle, compare_root) for bundle in bundles)
     source_labels = sorted({compact_source_label(bundle) for bundle in bundles if compact_source_label(bundle)})
     explanation = (
-        "왼쪽은 실제 S1 flight 스크린샷이고, 오른쪽은 같은 입력을 baseline별 step IO로 푼 결과다. "
+        "왼쪽은 실제 S1 flight 스크린샷이고, 오른쪽은 baseline별 step 스크린샷이다. "
         "Synapse는 state abstraction 뒤에 exemplar trajectory를 retrieval해서 TaE prompt에 넣고, 마지막에 그 trajectory를 다시 memory로 써 둔다."
         if group.get("task_name") == "flight"
-        else "왼쪽은 실제 S1 스크린샷이고, 오른쪽은 같은 입력을 baseline별 step IO로 푼 결과다."
+        else "왼쪽은 실제 S1 스크린샷이고, 오른쪽은 baseline별 step 스크린샷이다."
     )
     return f"""
       <section class="task-section">
@@ -978,7 +1158,7 @@ body {
 
 .compare-layout {
   display: grid;
-  grid-template-columns: minmax(420px, 0.92fr) minmax(700px, 1.72fr);
+  grid-template-columns: minmax(420px, 0.90fr) minmax(760px, 1.82fr);
   gap: 16px;
   margin-top: 16px;
   align-items: start;
@@ -1267,12 +1447,87 @@ body {
   flex-direction: column;
   gap: 10px;
   min-height: 100%;
+  width: 100%;
 }
 
 .model-card .links {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.step-gallery {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.step-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.step-shot {
+  margin: 0;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 18px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+}
+
+.step-shot-img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.step-shot figcaption {
+  padding: 10px 12px 12px;
+}
+
+.step-shot-caption {
+  font-weight: 900;
+  font-size: 13px;
+  color: #0f172a;
+  line-height: 1.4;
+}
+
+.step-snapshot-sheet {
+  width: 100%;
+}
+
+.step-snapshot-head {
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.step-snapshot-layout {
+  display: grid;
+  grid-template-columns: minmax(500px, 1.15fr) minmax(280px, 0.75fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.step-snapshot-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.step-snapshot-img,
+.step-snapshot-iframe {
+  width: 100%;
+  display: block;
+}
+
+.step-snapshot-iframe {
+  min-height: 760px;
+  border: 0;
 }
 
 .chips {
@@ -1392,6 +1647,8 @@ pre {
   .hero { flex-direction: column; }
   .model-strip { grid-auto-flow: row; grid-auto-columns: 1fr; }
   .pipeline-io { grid-template-columns: 1fr; }
+  .step-snapshot-layout { grid-template-columns: 1fr; }
+  .step-snapshot-head { flex-direction: column; }
 }
 """
 
