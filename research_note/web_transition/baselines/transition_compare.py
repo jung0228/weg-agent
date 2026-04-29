@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 from collections import OrderedDict
 from pathlib import Path
@@ -43,6 +44,8 @@ FAMILY_TONES = {
     "memory": "gray",
     "world_model": "indigo",
 }
+
+CHROME_BIN = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 
 def load_bundles_from_path(path: Path) -> list[dict[str, Any]]:
@@ -89,6 +92,110 @@ def group_bundles(paths: list[Path]) -> list[dict[str, Any]]:
                 }
             )
     return list(groups.values())
+
+
+def slugify(text: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "_", text.strip())
+    slug = re.sub(r"_+", "_", slug).strip("._-")
+    return slug or "task"
+
+
+def natural_sort_key(path: Path) -> tuple[Any, ...]:
+    parts = re.split(r"(\d+)", path.name)
+    key: list[Any] = []
+    for part in parts:
+        if part.isdigit():
+            key.append(int(part))
+        elif part:
+            key.append(part.lower())
+    return tuple(key)
+
+
+def find_task_images(task_dir: Path) -> list[Path]:
+    patterns = ["screenshot*.png", "screenshot*.webp", "screenshot*.jpg", "step*.png", "*.png"]
+    seen: list[Path] = []
+    for pattern in patterns:
+        for path in sorted(task_dir.glob(pattern), key=natural_sort_key):
+            if path.name in {".DS_Store"}:
+                continue
+            if path not in seen:
+                seen.append(path)
+    return seen
+
+
+def render_snapshot_document(bundle: dict[str, Any]) -> str:
+    """Wrap the task preview in a standalone document so Chrome can rasterize it."""
+    return f"""<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{esc(bundle.get("task_name", "Task"))} · Snapshot</title>
+  <style>{CSS}
+{COMPARE_CSS}</style>
+</head>
+<body>
+  <div class="page" style="padding:24px">
+    {render_task_preview(bundle)}
+  </div>
+</body>
+</html>
+"""
+
+
+def ensure_snapshot_asset(bundle: dict[str, Any], compare_root: Path) -> dict[str, str]:
+    """Return a renderable asset for the task snapshot, generating one if needed."""
+    task_dir = Path(bundle.get("task_dir", ""))
+    existing = find_task_images(task_dir)
+    if existing:
+        try:
+            return {"kind": "image", "src": os.path.relpath(existing[0], start=compare_root)}
+        except ValueError:
+            return {"kind": "image", "src": str(existing[0])}
+
+    task_name = str(bundle.get("task_name", task_dir.name or "task"))
+    source_label = str(bundle.get("source_label", "source"))
+    asset_dir = compare_root / ".web_transition_assets" / slugify(task_name) / slugify(source_label)
+    asset_dir.mkdir(parents=True, exist_ok=True)
+    html_path = asset_dir / "snapshot.html"
+    png_path = asset_dir / "snapshot.png"
+
+    html_path.write_text(render_snapshot_document(bundle), encoding="utf-8")
+    src_paths = [
+        task_dir / "result.json",
+        task_dir / "interact_messages.json",
+        task_dir / "metadata.json",
+        task_dir / "user_prompt.txt",
+        task_dir / "system_prompt.txt",
+    ]
+    source_mtime = max((p.stat().st_mtime for p in src_paths if p.exists()), default=0.0)
+    if (not png_path.exists()) or png_path.stat().st_mtime < max(source_mtime, html_path.stat().st_mtime):
+        try:
+            subprocess.run(
+                [
+                    CHROME_BIN,
+                    "--headless",
+                    "--disable-gpu",
+                    "--hide-scrollbars",
+                    "--window-size=1600,1200",
+                    f"--screenshot={png_path}",
+                    f"file://{html_path}",
+                ],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            # Fall back to the raw HTML path if Chrome capture is unavailable.
+            try:
+                return {"kind": "html", "src": os.path.relpath(html_path, start=compare_root)}
+            except ValueError:
+                return {"kind": "html", "src": str(html_path)}
+
+    try:
+        return {"kind": "image", "src": os.path.relpath(png_path, start=compare_root)}
+    except ValueError:
+        return {"kind": "image", "src": str(png_path)}
 
 
 def render_task_preview(bundle: dict[str, Any]) -> str:
@@ -142,11 +249,14 @@ def render_task_preview(bundle: dict[str, Any]) -> str:
 
     return f"""
       <section class="panel preview-panel">
-        <div class="section-label">Task Image</div>
+        <div class="section-label">S1 State Image</div>
         <div class="preview-shell">
           <div class="preview-topbar">
             <div class="preview-dots"><span></span><span></span><span></span></div>
-            <div class="preview-address">{esc(observation.get("page_type", "page"))} · {esc(bundle.get("task_name", "Task"))}</div>
+            <div class="preview-topbar-center">
+              <span class="preview-step">S1</span>
+              <span class="preview-address">{esc(observation.get("page_type", "page"))} · {esc(bundle.get("task_name", "Task"))}</span>
+            </div>
           </div>
           <div class="preview-body">
             <aside class="preview-sidebar">
@@ -170,28 +280,56 @@ def render_task_preview(bundle: dict[str, Any]) -> str:
             </main>
           </div>
         </div>
-        <details open>
-          <summary>Raw observation / memory</summary>
-          <div class="raw-preview">
-            {render_observation(payload)}
-            <div style="height:12px"></div>
-            <div class="card">
-              <div class="card-title">
-                <h3>Retrieved Transition Memory</h3>
-                <span class="meta">{len(payload.get("retrieved_transition_memory", []) or [])} items</span>
-              </div>
-              {render_memory_cards(payload)}
-            </div>
-            <div style="height:12px"></div>
-            <div class="card">
-              <div class="card-title">
-                <h3>Candidate Actions</h3>
-                <span class="meta">{len(candidate_actions)} actions</span>
-              </div>
-              {render_candidate_cards(payload)}
-            </div>
+      </section>
+    """
+
+
+def render_task_snapshot_panel(bundle: dict[str, Any], compare_root: Path) -> str:
+    payload = bundle.get("payload", {})
+    observation = payload.get("observation", {})
+    if not isinstance(observation, dict):
+        observation = {}
+    visible_regions = observation.get("visible_regions", [])
+    if not isinstance(visible_regions, list):
+        visible_regions = []
+    candidate_actions = payload.get("candidate_actions", [])
+    if not isinstance(candidate_actions, list):
+        candidate_actions = []
+
+    asset = ensure_snapshot_asset(bundle, compare_root)
+    src = asset.get("src", "")
+    kind = asset.get("kind", "image")
+    if kind == "html":
+        media = f'<iframe class="snapshot-media snapshot-iframe" src="{esc(src)}" loading="lazy"></iframe>'
+    else:
+        media = f'<img class="snapshot-media snapshot-img" src="{esc(src)}" alt="S1 state snapshot" />'
+
+    region_chips = "".join(chip(region, "indigo") for region in visible_regions) or '<div class="small">-</div>'
+    summary_bits = [
+        chip(observation.get("page_type", "page"), "teal"),
+        chip(f"{len(visible_regions)} regions", "gray"),
+        chip(f"{len(candidate_actions)} actions", "orange"),
+    ]
+
+    return f"""
+      <section class="panel snapshot-panel">
+        <div class="section-label">S1 State Image</div>
+        <div class="snapshot-stage">
+          <div class="snapshot-frame">
+            {media}
           </div>
-        </details>
+          <div class="snapshot-caption">
+            <span class="snapshot-step">S1</span>
+            <span class="snapshot-title">{esc(observation.get("page_type", "—"))}</span>
+            <span class="snapshot-subtitle">{esc(bundle.get("task_name", "Task"))}</span>
+          </div>
+          <div class="chips">
+            {''.join(summary_bits)}
+          </div>
+          <div class="small" style="line-height:1.7">
+            <b>Visible regions:</b> {region_chips}
+          </div>
+        </div>
       </section>
     """
 
@@ -328,7 +466,7 @@ def render_task_section(group: dict[str, Any], compare_root: Path) -> str:
         return ""
     bundles = sorted(bundles, key=lambda b: (b.get("source_order", 0), b.get("source_label", "")))
     shared_bundle = bundles[0]
-    input_panel = render_task_preview(shared_bundle)
+    input_panel = render_task_snapshot_panel(shared_bundle, compare_root)
     model_cards = "".join(render_model_card(bundle, compare_root) for bundle in bundles)
     source_labels = sorted({str(bundle.get("source_label", "")) for bundle in bundles if bundle.get("source_label")})
     return f"""
@@ -412,8 +550,6 @@ def render_compare_page(compare_root: Path, groups: list[dict[str, Any]]) -> str
       </div>
     </header>
 
-    {render_baseline_shelf()}
-
     <nav class="nav">
       {nav_links}
     </nav>
@@ -421,6 +557,8 @@ def render_compare_page(compare_root: Path, groups: list[dict[str, Any]]) -> str
     <div class="stack">
       {''.join(sections)}
     </div>
+
+    {render_baseline_shelf()}
   </div>
 </body>
 </html>
@@ -752,7 +890,7 @@ body {
 
 .compare-layout {
   display: grid;
-  grid-template-columns: minmax(320px, 0.95fr) minmax(420px, 1.6fr);
+  grid-template-columns: minmax(420px, 1.05fr) minmax(540px, 1.65fr);
   gap: 16px;
   margin-top: 16px;
   align-items: start;
@@ -780,6 +918,27 @@ body {
   color: #cbd5e1;
 }
 
+.preview-topbar-center {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
+.preview-step {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #2563eb;
+  color: white;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
 .preview-dots {
   display: flex;
   gap: 6px;
@@ -798,7 +957,6 @@ body {
 .preview-dots span:nth-child(3) { background: #22c55e; }
 
 .preview-address {
-  flex: 1;
   text-align: right;
   font-size: 11px;
   color: #93c5fd;
@@ -942,6 +1100,67 @@ body {
 
 .raw-preview {
   margin-top: 10px;
+}
+
+.snapshot-panel {
+  position: sticky;
+  top: 16px;
+  align-self: start;
+}
+
+.snapshot-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.snapshot-frame {
+  overflow: hidden;
+  border-radius: 24px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: #fff;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+}
+
+.snapshot-media {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.snapshot-iframe {
+  min-height: 900px;
+  border: 0;
+}
+
+.snapshot-caption {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.snapshot-step {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #0f172a;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.snapshot-title {
+  font-size: 15px;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.snapshot-subtitle {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .model-strip {
