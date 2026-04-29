@@ -28,6 +28,7 @@ from transition_viewer import (
     chip,
     discover_task_dirs,
     esc,
+    first_line,
     load_task_bundle,
 )
 
@@ -455,6 +456,449 @@ def render_raw_step_gallery(bundle: dict[str, Any], compare_root: Path) -> str:
     """
 
 
+def ensure_reasoningbank_step_asset(
+    bundle: dict[str, Any],
+    compare_root: Path,
+    step_dir: Path,
+) -> dict[str, str]:
+    task_dir = Path(bundle.get("task_dir", ""))
+    task_name = str(bundle.get("task_name", task_dir.name or "task"))
+    source_label = str(bundle.get("source_label", "source"))
+    asset_dir = compare_root / ".web_transition_assets" / slugify(task_name) / slugify(source_label) / "reasoningbank"
+    asset_dir.mkdir(parents=True, exist_ok=True)
+
+    snapshot_asset = ensure_snapshot_asset(bundle, compare_root)
+    snapshot_src = snapshot_asset.get("src", "")
+    snapshot_ref = Path(snapshot_src).name if snapshot_src else ""
+    metadata_text = read_text_or_placeholder(step_dir / "metadata.json")
+    metadata = {}
+    try:
+        metadata = json.loads(metadata_text)
+    except Exception:
+        metadata = {}
+    step_label = step_dir.name
+    candidate_id = str(metadata.get("candidate_id", "")).strip() or "?"
+
+    html_path = asset_dir / f"{step_label}.html"
+    png_path = asset_dir / f"{step_label}.png"
+    html_path.write_text(
+        f"""<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{esc(task_name)} · {esc(step_label)}</title>
+  <style>
+    body {{
+      margin: 0;
+      background: #f8fafc;
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #0f172a;
+      padding: 18px;
+    }}
+    .frame {{
+      border: 1px solid rgba(15,23,42,.12);
+      border-radius: 20px;
+      background: white;
+      box-shadow: 0 18px 40px rgba(15,23,42,.08);
+      overflow: hidden;
+    }}
+    .head {{
+      display:flex;
+      justify-content:space-between;
+      gap:12px;
+      align-items:center;
+      padding:14px 16px;
+      border-bottom:1px solid rgba(15,23,42,.08);
+      background: linear-gradient(180deg,#fff 0%,#f8fafc 100%);
+    }}
+    .badge {{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:4px 10px;
+      border-radius:999px;
+      background:#e0e7ff;
+      color:#3730a3;
+      font-size:11px;
+      font-weight:900;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+    }}
+    .subtitle {{
+      font-size:12px;
+      color:#64748b;
+      line-height:1.5;
+      max-width:42ch;
+      text-align:right;
+    }}
+    img {{
+      display:block;
+      width:100%;
+      height:auto;
+    }}
+    .caption {{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      flex-wrap:wrap;
+      padding:12px 16px;
+      border-top:1px solid rgba(15,23,42,.08);
+    }}
+    .step {{
+      display:inline-flex;
+      align-items:center;
+      padding:4px 10px;
+      border-radius:999px;
+      background:#0f172a;
+      color:#fff;
+      font-size:11px;
+      font-weight:900;
+      letter-spacing:.08em;
+    }}
+    .step-title {{
+      font-size:15px;
+      font-weight:900;
+    }}
+    .muted {{
+      font-size:12px;
+      color:#64748b;
+    }}
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <div class="head">
+      <div>
+        <div class="badge">ReasoningBank capture</div>
+        <div style="margin-top:8px;font-size:20px;font-weight:900;letter-spacing:-.02em">{esc(task_name)}</div>
+      </div>
+      <div class="subtitle">
+        Same observed page state, but the raw prompt/output differs by step.
+        <br />Candidate: {esc(candidate_id)}
+      </div>
+    </div>
+    <img src="{esc(snapshot_ref)}" alt="{esc(step_label)}" />
+    <div class="caption">
+      <span class="step">{esc(step_label)}</span>
+      <span class="step-title">ReasoningBank raw capture</span>
+      <span class="muted">candidate {esc(candidate_id)}</span>
+    </div>
+  </div>
+</body>
+</html>
+""",
+        encoding="utf-8",
+    )
+
+    snapshot_path = Path(snapshot_src)
+    if snapshot_src and not snapshot_path.is_absolute():
+        snapshot_path = Path(compare_root) / snapshot_path
+    if (not png_path.exists()) or png_path.stat().st_mtime < max(
+        (step_dir / "metadata.json").stat().st_mtime if (step_dir / "metadata.json").exists() else 0,
+        (step_dir / "llm_output.json").stat().st_mtime if (step_dir / "llm_output.json").exists() else 0,
+        (step_dir / "system_prompt.txt").stat().st_mtime if (step_dir / "system_prompt.txt").exists() else 0,
+        (step_dir / "user_prompt.txt").stat().st_mtime if (step_dir / "user_prompt.txt").exists() else 0,
+        snapshot_path.stat().st_mtime if snapshot_src and snapshot_path.exists() else 0,
+        html_path.stat().st_mtime,
+    ):
+        try:
+            subprocess.run(
+                [
+                    CHROME_BIN,
+                    "--headless",
+                    "--disable-gpu",
+                    "--hide-scrollbars",
+                    "--window-size=1600,1200",
+                    f"--screenshot={png_path}",
+                    f"file://{html_path.resolve()}",
+                ],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass
+
+    try:
+        return {"kind": "image", "src": os.path.relpath(png_path, start=compare_root)}
+    except ValueError:
+        return {"kind": "image", "src": str(png_path)}
+
+
+def render_reasoningbank_focus(bundle: dict[str, Any], compare_root: Path) -> str:
+    task_dir = Path(bundle.get("task_dir", ""))
+    step_dirs = discover_step_dirs(task_dir)
+    if not step_dirs:
+        return '<div class="small">No reasoningbank step directories found.</div>'
+
+    step_assets = [ensure_reasoningbank_step_asset(bundle, compare_root, step_dir) for step_dir in step_dirs]
+    step_meta = []
+    for step_dir in step_dirs:
+        metadata_text = read_text_or_placeholder(step_dir / "metadata.json")
+        try:
+            step_meta.append(json.loads(metadata_text))
+        except Exception:
+            step_meta.append({})
+
+    slide_buttons = "".join(
+        f'<button class="slide-btn{" active" if idx == 0 else ""}" onclick="showReasoningbankStep({idx})">{esc(step_dir.name)}</button>'
+        for idx, step_dir in enumerate(step_dirs)
+    )
+    slides = []
+    for idx, (asset, meta, step_dir) in enumerate(zip(step_assets, step_meta, step_dirs)):
+        caption = f"{step_dir.name} · {meta.get('candidate_id', '')}"
+        slides.append(
+            f"""
+            <div class="slide {'active' if idx == 0 else ''}" id="rb-slide-{idx}">
+              <img class="rb-slide-img" src="{esc(asset.get('src', ''))}" alt="{esc(caption)}" />
+              <div class="step-label">{esc(caption)}</div>
+            </div>
+            """
+        )
+
+    raw_blocks = []
+    for step_dir, meta in zip(step_dirs, step_meta):
+        raw_blocks.append(
+            f"""
+            <article class="raw-step-card">
+              <div class="raw-step-head">
+                <div>
+                  <div class="raw-step-step">{esc(step_dir.name)}</div>
+                  <div class="raw-step-title">ReasoningBank raw step IO</div>
+                </div>
+                <div class="meta">no parsing</div>
+              </div>
+              <div class="raw-step-grid">
+                <div class="raw-step-column">
+                  <div class="raw-section-label">Input</div>
+                  {render_raw_file_block("system_prompt.txt", read_text_or_placeholder(step_dir / "system_prompt.txt"))}
+                  {render_raw_file_block("user_prompt.txt", read_text_or_placeholder(step_dir / "user_prompt.txt"))}
+                  {render_raw_file_block("metadata.json", read_text_or_placeholder(step_dir / "metadata.json"))}
+                </div>
+                <div class="raw-step-column">
+                  <div class="raw-section-label">Output</div>
+                  {render_raw_file_block("llm_output.json", read_text_or_placeholder(step_dir / "llm_output.json"))}
+                  {render_raw_file_block("acc_tree.txt", read_text_or_placeholder(step_dir / "acc_tree.txt"))}
+                </div>
+              </div>
+            </article>
+            """
+        )
+
+    result_json = read_text_or_placeholder(task_dir / "result.json")
+    interact_messages = read_text_or_placeholder(task_dir / "interact_messages.json")
+    return f"""
+      <section class="reasoningbank-focus">
+        <div class="section-label">ReasoningBank focus</div>
+        <div class="raw-output-grid" style="grid-template-columns:minmax(420px,0.9fr) minmax(520px,1.1fr)">
+          <div class="raw-output-side">
+            <div class="slider-wrap reasoningbank-slider">
+              <div class="slides">
+                {''.join(slides)}
+              </div>
+              <div class="thumbs" style="margin-top:10px">{slide_buttons}</div>
+            </div>
+            <div class="raw-output-meta">
+              <div class="raw-output-meta-row">
+                <span>result.json</span>
+                <div>{esc(first_line(result_json, 240))}</div>
+              </div>
+              <div class="raw-output-meta-row">
+                <span>interact_messages.json</span>
+                <div>{esc(first_line(interact_messages, 240))}</div>
+              </div>
+            </div>
+          </div>
+          <div class="raw-output-main">
+            <div class="stack-inner">
+              {''.join(raw_blocks)}
+            </div>
+          </div>
+        </div>
+        <script>
+        function showReasoningbankStep(index) {{
+          const slides = document.querySelectorAll('.reasoningbank-slider .slide');
+          const buttons = document.querySelectorAll('.slide-btn');
+          slides.forEach((slide, i) => slide.classList.toggle('active', i === index));
+          buttons.forEach((btn, i) => btn.classList.toggle('active', i === index));
+        }}
+        </script>
+      </section>
+    """
+
+
+def render_reasoningbank_step_row(
+    bundle: dict[str, Any],
+    compare_root: Path,
+    step_dir: Path,
+    asset: dict[str, str],
+) -> str:
+    metadata_text = read_text_or_placeholder(step_dir / "metadata.json")
+    llm_output = read_text_or_placeholder(step_dir / "llm_output.json")
+    system_prompt = read_text_or_placeholder(step_dir / "system_prompt.txt")
+    user_prompt = read_text_or_placeholder(step_dir / "user_prompt.txt")
+    acc_tree = read_text_or_placeholder(step_dir / "acc_tree.txt")
+    try:
+        metadata = json.loads(metadata_text)
+    except Exception:
+        metadata = {}
+    candidate_id = str(metadata.get("candidate_id") or "—")
+    caption = f"{step_dir.name} · {candidate_id}"
+    image_src = asset.get("src", "")
+    raw_image = f'<img class="rb-step-image" src="{esc(image_src)}" alt="{esc(caption)}" />'
+    if asset.get("kind") == "html":
+        raw_image = f'<iframe class="rb-step-iframe" src="{esc(image_src)}" loading="lazy"></iframe>'
+
+    return f"""
+      <article class="rb-step-row">
+        <div class="rb-step-media">
+          <div class="rb-step-media-head">
+            <span class="snapshot-step">{esc(step_dir.name)}</span>
+            <span class="snapshot-subtitle">{esc(candidate_id)}</span>
+          </div>
+          <div class="rb-step-frame">
+            {raw_image}
+          </div>
+          <div class="rb-step-media-caption">
+            <span class="muted">ReasoningBank capture</span>
+            <span class="muted">{esc(caption)}</span>
+          </div>
+        </div>
+        <div class="rb-step-body">
+          <div class="raw-step-head">
+            <div>
+              <div class="raw-step-step">{esc(step_dir.name)}</div>
+              <div class="raw-step-title">ReasoningBank raw step IO</div>
+            </div>
+            <div class="meta">no parsing</div>
+          </div>
+          <div class="rb-step-summary">
+            <div class="rb-step-summary-item">
+              <span>candidate</span>
+              <b>{esc(candidate_id)}</b>
+            </div>
+            <div class="rb-step-summary-item">
+              <span>selected_action</span>
+              <b>{esc(str(metadata.get("selected_action") or "—"))}</b>
+            </div>
+            <div class="rb-step-summary-item">
+              <span>memory_view</span>
+              <div>{esc(str(metadata.get("memory_view") or "—"))}</div>
+            </div>
+          </div>
+          <div class="raw-step-grid">
+            <div class="raw-step-column">
+              <div class="raw-section-label">Input</div>
+              {render_raw_file_block("system_prompt.txt", system_prompt)}
+              {render_raw_file_block("user_prompt.txt", user_prompt)}
+              {render_raw_file_block("metadata.json", metadata_text)}
+            </div>
+            <div class="raw-step-column">
+              <div class="raw-section-label">Output</div>
+              {render_raw_file_block("llm_output.json", llm_output)}
+              {render_raw_file_block("acc_tree.txt", acc_tree)}
+            </div>
+          </div>
+        </div>
+      </article>
+    """
+
+
+def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str:
+    task_dir = Path(bundle.get("task_dir", ""))
+    step_dirs = discover_step_dirs(task_dir)
+    if not step_dirs:
+        return render_compare_page(compare_root, group_bundles([task_dir]))
+
+    step_assets = [ensure_reasoningbank_step_asset(bundle, compare_root, step_dir) for step_dir in step_dirs]
+    task_snapshot = render_task_snapshot_panel(bundle, compare_root)
+    result_json = read_text_or_placeholder(task_dir / "result.json")
+    interact_messages = read_text_or_placeholder(task_dir / "interact_messages.json")
+    step_rows = "".join(
+        render_reasoningbank_step_row(bundle, compare_root, step_dir, asset)
+        for step_dir, asset in zip(step_dirs, step_assets)
+    )
+    task_name = bundle.get("task_name", "Task")
+    task_text = str(bundle.get("payload", {}).get("task", ""))
+    source_label_text = compact_source_label(bundle)
+    return f"""<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{esc(task_name)} · ReasoningBank</title>
+  <style>{CSS}
+{COMPARE_CSS}</style>
+</head>
+<body>
+  <div class="page reasoningbank-page">
+    <header class="hero">
+      <div>
+        <div class="kicker">ReasoningBank focus</div>
+        <h1>{esc(task_name)}</h1>
+        <p>{esc(task_text)}</p>
+        <div class="metric-row">
+          <div class="metric"><div class="value">{len(step_dirs)}</div><div class="label">steps</div></div>
+          <div class="metric"><div class="value">{esc(source_label_text)}</div><div class="label">source</div></div>
+        </div>
+      </div>
+      <div style="min-width:280px;max-width:460px">
+        <div class="metric-row" style="margin-top:0">
+          <div class="metric" style="flex:1 1 100%">
+            <div class="label">What this page shows</div>
+            <div class="small" style="color:#e2e8f0;line-height:1.7">
+              왼쪽은 step마다 캡처한 이미지이고, 오른쪽은 GitHub prompt를 그대로 따른 원문 system/user prompt와 llm output이다.
+            </div>
+          </div>
+          <div class="metric" style="flex:1 1 100%">
+            <div class="label">Stored files</div>
+            <div class="small" style="color:#e2e8f0;line-height:1.7">{esc(str(task_dir))}</div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <section class="reasoningbank-step-list">
+      <div class="section-label">Step-by-step captures</div>
+      <p class="baseline-intro">각 스텝은 왼쪽 이미지와 오른쪽 원문 I/O를 짝으로 붙였다. 파싱 요약은 하지 않고, prompt 파일과 llm output을 그대로 보여준다.</p>
+      <div class="stack">
+        {step_rows}
+      </div>
+    </section>
+
+    <section class="task-section reasoningbank-single" style="margin-top:16px">
+      <div class="task-head">
+        <div>
+          <div class="section-label">Task snapshot</div>
+          <h2>{esc(task_name)}</h2>
+          <div class="small">{esc(task_text)}</div>
+        </div>
+        <div class="chips">
+          {chip("ReasoningBank", "gray")}
+          {chip("raw prompts", "indigo")}
+        </div>
+      </div>
+      <div class="compare-layout reasoningbank-summary-layout">
+        {task_snapshot}
+        <div class="model-card reasoningbank-summary-card">
+          <div class="card-title">
+            <h3>Bundle raw files</h3>
+            <span class="meta">task-level</span>
+          </div>
+          <div class="stack-inner">
+            {render_raw_file_block("result.json", result_json)}
+            {render_raw_file_block("interact_messages.json", interact_messages)}
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>
+"""
+
+
 def render_baseline_shelf() -> str:
     family_order = ["memory", "world_model"]
     family_sections = []
@@ -554,11 +998,15 @@ def render_model_card(bundle: dict[str, Any], compare_root: Path) -> str:
         rel_result = str(task_dir / "result.json")
 
     output_strip = render_baseline_output_strip(bundle)
-    step_gallery = render_raw_step_gallery(bundle, compare_root)
     result_json = read_text_or_placeholder(task_dir / "result.json")
     metadata_json = read_text_or_placeholder(task_dir / "metadata.json")
     interact_messages = read_text_or_placeholder(task_dir / "interact_messages.json")
     assistant_output = read_text_or_placeholder(task_dir / "assistant_output.txt")
+
+    if baseline_name == "reasoningbank":
+        detail_body = render_reasoningbank_focus(bundle, compare_root)
+    else:
+        detail_body = render_raw_step_gallery(bundle, compare_root)
 
     return f"""
       <article class="model-card">
@@ -571,7 +1019,7 @@ def render_model_card(bundle: dict[str, Any], compare_root: Path) -> str:
           {chip(task_name, "gray")}
         </div>
         {output_strip}
-        {step_gallery}
+        {detail_body}
         <details style="margin-top:12px">
           <summary>Bundle raw files</summary>
           <div class="stack-inner" style="margin-top:10px">
@@ -1356,6 +1804,58 @@ body {
   word-break: break-word;
 }
 
+.slider-wrap {
+  position: relative;
+}
+
+.slides {
+  position: relative;
+}
+
+.slide {
+  display: none;
+}
+
+.slide.active {
+  display: block;
+}
+
+.rb-slide-img {
+  width: 100%;
+  display: block;
+  border-radius: 16px;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  background: white;
+}
+
+.step-label {
+  text-align: center;
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 8px;
+}
+
+.slide-btn {
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: white;
+  color: #0f172a;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.slide-btn.active {
+  background: #0f172a;
+  color: white;
+  border-color: #0f172a;
+}
+
+.reasoningbank-slider .thumbs {
+  gap: 8px;
+}
+
 .shared-input {
   align-self: start;
 }
@@ -1469,6 +1969,120 @@ body {
   overflow: auto;
   background: transparent;
   border: 0;
+}
+
+.reasoningbank-page .reasoningbank-summary-layout {
+  grid-template-columns: minmax(440px, 0.98fr) minmax(320px, 0.72fr);
+}
+
+.reasoningbank-summary-card {
+  margin-top: 0;
+}
+
+.reasoningbank-step-list {
+  margin-top: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  padding: 18px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(12px);
+}
+
+.rb-step-row {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.92fr) minmax(560px, 1.08fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.rb-step-row + .rb-step-row {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.rb-step-media {
+  position: sticky;
+  top: 16px;
+  align-self: start;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 12px;
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.06);
+}
+
+.rb-step-media-head,
+.rb-step-media-caption {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.rb-step-media-caption {
+  margin-top: 8px;
+}
+
+.rb-step-frame {
+  margin-top: 10px;
+  overflow: hidden;
+  border-radius: 16px;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  background: white;
+}
+
+.rb-step-image,
+.rb-step-iframe {
+  width: 100%;
+  display: block;
+}
+
+.rb-step-iframe {
+  min-height: 620px;
+  border: 0;
+}
+
+.rb-step-body {
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.90);
+  padding: 14px;
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.05);
+}
+
+.rb-step-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.5fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.rb-step-summary-item {
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 16px;
+  background: rgba(248, 250, 252, 0.95);
+  padding: 10px 12px;
+}
+
+.rb-step-summary-item span {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 800;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.rb-step-summary-item b,
+.rb-step-summary-item div {
+  font-size: 12px;
+  line-height: 1.55;
+  color: #0f172a;
+  word-break: break-word;
 }
 
 .step-snapshot-sheet {
@@ -1628,6 +2242,10 @@ pre {
   .raw-step-grid { grid-template-columns: 1fr; }
   .step-snapshot-layout { grid-template-columns: 1fr; }
   .step-snapshot-head { flex-direction: column; }
+  .rb-step-row { grid-template-columns: 1fr; }
+  .rb-step-media { position: static; }
+  .rb-step-summary { grid-template-columns: 1fr; }
+  .reasoningbank-page .reasoningbank-summary-layout { grid-template-columns: 1fr; }
 }
 """
 
@@ -1645,7 +2263,14 @@ def main() -> None:
 
     compare_root = Path(os.path.commonpath([str(path.resolve()) for path in input_paths]))
     out = compare_root / "comparison_viewer.html"
-    out.write_text(render_compare_page(compare_root, groups), encoding="utf-8")
+    if (
+        len(groups) == 1
+        and len(groups[0].get("bundles", [])) == 1
+        and str(groups[0]["bundles"][0].get("metadata", {}).get("baseline") or "").strip() == "reasoningbank"
+    ):
+        out.write_text(render_reasoningbank_page(groups[0]["bundles"][0], compare_root), encoding="utf-8")
+    else:
+        out.write_text(render_compare_page(compare_root, groups), encoding="utf-8")
     print(out)
     if args.open:
         subprocess.run(["open", str(out)], check=False)
