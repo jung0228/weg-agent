@@ -746,7 +746,6 @@ def render_reasoningbank_step_row(
     bundle: dict[str, Any],
     compare_root: Path,
     step_dir: Path,
-    asset: dict[str, str],
     phase_label: str,
 ) -> str:
     metadata_text = read_text_or_placeholder(step_dir / "metadata.json")
@@ -763,32 +762,13 @@ def render_reasoningbank_step_row(
     except Exception:
         llm_data = {}
     candidate_id = str(metadata.get("candidate_id") or "—")
-    caption = f"{step_dir.name} · {candidate_id}"
-    image_src = asset.get("src", "")
-    raw_image = f'<img class="rb-step-image" src="{esc(image_src)}" alt="{esc(caption)}" />'
-    if asset.get("kind") == "html":
-        raw_image = f'<iframe class="rb-step-iframe" src="{esc(image_src)}" loading="lazy"></iframe>'
-
     return f"""
       <article class="rb-step-row">
-        <div class="rb-step-media">
-          <div class="rb-step-media-head">
-            <span class="snapshot-step">{esc(phase_label)}</span>
-            <span class="snapshot-subtitle">{esc(step_dir.name)} · {esc(candidate_id)}</span>
-          </div>
-          <div class="rb-step-frame">
-            {raw_image}
-          </div>
-          <div class="rb-step-media-caption">
-            <span class="muted">ReasoningBank capture</span>
-            <span class="muted">{esc(caption)}</span>
-          </div>
-        </div>
         <div class="rb-step-body">
           <div class="raw-step-head">
             <div>
-              <div class="raw-step-step">{esc(step_dir.name)}</div>
-              <div class="raw-step-title">{esc(phase_label)} raw step IO</div>
+              <div class="raw-step-step">{esc(step_dir.name)} · {esc(phase_label)}</div>
+              <div class="raw-step-title">memory update</div>
             </div>
             <div class="meta">no parsing</div>
           </div>
@@ -1041,7 +1021,6 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
     if not step_dirs:
         return render_compare_page(compare_root, group_bundles([task_dir]))
 
-    step_assets = [ensure_reasoningbank_step_asset(bundle, compare_root, step_dir) for step_dir in step_dirs]
     phase_labels = reasoningbank_phase_labels(len(step_dirs))
     method_map = render_reasoningbank_method_map(bundle, compare_root)
     memory_growth = render_reasoningbank_memory_growth(bundle, compare_root)
@@ -1049,8 +1028,8 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
     result_json = read_text_or_placeholder(task_dir / "result.json")
     interact_messages = read_text_or_placeholder(task_dir / "interact_messages.json")
     step_rows = "".join(
-        render_reasoningbank_step_row(bundle, compare_root, step_dir, asset, phase_label)
-        for step_dir, asset, phase_label in zip(step_dirs, step_assets, phase_labels)
+        render_reasoningbank_step_row(bundle, compare_root, step_dir, phase_label)
+        for step_dir, phase_label in zip(step_dirs, phase_labels)
     )
     task_name = bundle.get("task_name", "Task")
     task_text = str(bundle.get("payload", {}).get("task", ""))
@@ -1098,7 +1077,7 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
 
     <section class="reasoningbank-step-list">
       <div class="section-label">Step-by-step captures</div>
-      <p class="baseline-intro">각 스텝은 왼쪽 이미지와 오른쪽 원문 I/O를 짝으로 붙였다. 파싱 요약은 하지 않고, prompt 파일과 llm output을 그대로 보여준다.</p>
+      <p class="baseline-intro">각 스텝은 메모리가 어떻게 추가되는지에 초점을 맞춰 보여준다. 긴 prompt는 접어두고, step마다 새로 생긴 memory item과 bank 누적 결과를 먼저 본다.</p>
       <div class="stack">
         {step_rows}
       </div>
