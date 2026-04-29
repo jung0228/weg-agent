@@ -910,15 +910,8 @@ def render_reasoningbank_method_map(bundle: dict[str, Any], compare_root: Path) 
           {''.join(phase_cards)}
         </div>
         {schema_block}
-        <details style="margin-top:14px">
-          <summary>Why this matches the blog</summary>
-          <div class="small" style="margin-top:10px; line-height:1.7">
-            retrieval는 top-k search와 system prompt 주입, extraction은 LLM-as-a-Judge와 success/failure 판정, consolidation은 append-only bank update로 읽으면 된다.
-            이 페이지는 그 흐름을 현재 task의 raw prompt/output와 함께 보여주기 위해 만든 것이다.
-          </div>
-        </details>
-        <div class="small" style="margin-top:10px; color:var(--muted)">
-          Task-level raw file: {esc(first_line(result_json, 220))}
+        <div class="small" style="margin-top:12px; color:var(--muted); line-height:1.7">
+          retrieval는 bank에서 관련 memory item을 읽고, extraction은 episode를 보고 새 전략을 뽑고, consolidation은 그 전략을 다음 task를 위한 bank item으로 추가한다.
         </div>
       </section>
     """
