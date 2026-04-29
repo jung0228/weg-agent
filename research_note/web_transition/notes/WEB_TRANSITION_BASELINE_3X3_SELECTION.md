@@ -26,7 +26,7 @@ Citation은 빠른 비교용으로 arXiv.gg 기준을 우선 사용했고, RAP�
 | 순위 | 방법 | 연도/venue | cite | GitHub | stars / forks | 선정 이유 | 내일 포지션 |
 |---:|---|---|---:|---|---:|---|---|
 | 1 | WMA: Web Agents with World Models | ICLR 2025 | 25 | [kyle8581/WMA-Agents](https://github.com/kyle8581/WMA-Agents) | 28 / 2 | `O_t, A_i -> next observation delta`를 직접 예측하는 가장 정면 baseline. | learned world model baseline |
-| 2 | WebEvolver | EMNLP 2025 | 6 | [Tencent/SelfEvolvingAgent](https://github.com/Tencent/SelfEvolvingAgent) | 100 / 5 | co-evolving world model이 synthetic trajectory 생성과 inference look-ahead에 쓰임. 최신이고 코드 있음. | co-evolving world model baseline |
+| 2 | WebDreamer | TMLR 2025 | 0 | [OSU-NLP-Group/WebDreamer](https://github.com/OSU-NLP-Group/WebDreamer) | 98 / 6 | screenshot + action 기반으로 webpage change를 시뮬레이션하는 가장 web-native한 multimodal world model baseline. | multimodal web world model baseline |
 | 3 | RAP: Reasoning via Planning | EMNLP 2023 | 954* | [Ber666/RAP](https://github.com/Ber666/RAP) | 192 / 23 | LLM을 world model + agent로 쓰는 근본 planning baseline. web-specific은 아니지만 코드가 있고 같은 `state + action -> imagined state/reward` IO로 맞출 수 있음. | runnable world-model planning fallback |
 
 *RAP citation은 Semantic Scholar 기준이다.
@@ -46,12 +46,12 @@ Citation은 빠른 비교용으로 arXiv.gg 기준을 우선 사용했고, RAP�
 | 방법 | world model 사용 방식 | 같은 input에서 나오는 output | 우리와 비교할 포인트 |
 |---|---|---|---|
 | WMA | trained world model | candidate action별 predicted next observation | 우리와 가장 정면 비교. 단, 지식은 parameter 안에 있음 |
-| WebEvolver | co-evolving world model | synthetic trajectory / look-ahead simulation | self-improvement와 world model을 함께 키움 |
+| WebDreamer | multimodal simulated webpage change | change description / a11y tree / html | screenshot 기반 imagination이라 web-native 비교가 잘 됨 |
 | RAP | LLM-as-world-model + MCTS | imagined next state, reward, search trace | web-specific은 아니지만 runnable하고 world-model planning의 근본 비교축을 줌 |
 
 ## 3. 코드 없는 최신 web-world-model 논문은 어떻게 둘까
 
-web-agent world-model 계열에서 공식 코드가 확실한 것은 현재 확인 기준으로 WMA와 WebEvolver가 가장 강하다. 최신 논문들은 우리와 가깝지만 코드가 없어 내일 핵심 baseline에는 넣지 않는다.
+web-agent world-model 계열에서 공식 코드가 확실한 것은 현재 확인 기준으로 WMA와 WebDreamer가 가장 강하다. 최신 논문들은 우리와 가깝지만 코드가 없어 내일 핵심 baseline에는 넣지 않는다.
 
 paper-level related work로 둘 후보:
 
@@ -76,7 +76,7 @@ Memory:
 
 World model:
   1. WMA API prototype / WMA official
-  2. WebEvolver paper/code review
+  2. WebDreamer local 7B / official
   3. RAP-style LLM world-model planning
 
 Ours:
@@ -91,9 +91,9 @@ Ours:
 | 2 | AWM API prototype | workflow induction prompt만 만들면 됨 |
 | 3 | WMA API prototype | world model fine-tuning 없이 바로 비교 가능 |
 | 4 | Ours transition memory | 핵심 비교 대상 |
-| 5 | ReasoningBank-style memory | 코드 참고 가능하지만 extraction/evaluation loop가 조금 큼 |
-| 6 | WMA official / WebEvolver official | 세팅과 비용 확인 필요 |
-| 7 | RAP-style search | web-specific adapter를 만들어야 해서 뒤로 |
+| 5 | WebDreamer local 7B | 24GB 한 장에서 가장 현실적인 web-native world-model baseline |
+| 6 | ReasoningBank-style memory | 코드 참고 가능하지만 extraction/evaluation loop가 조금 큼 |
+| 7 | WMA official / WebEvolver official / RAP-style search | 세팅과 비용 확인 필요, 서버 실험용 |
 
 ## 5. GPU / 실행 부담 기준
 
@@ -115,6 +115,7 @@ Ours:
 | 방법 | 왜 무거운가 | 내일 처리 |
 |---|---|---|
 | WMA official | Llama-3.1-8B world/value model adapter inference, fine-tuning, WebArena setup | `WMA API prototype`으로 대체하고 official은 후순위 |
+| WebDreamer local 7B / official | screenshot 입력, vLLM, image-text inference, 긴 컨텍스트 관리 | 24GB 1장으로 가능성이 높지만, 이미지+긴 컨텍스트는 여유가 필요 |
 | WebEvolver official | co-evolving world model/agent loop와 synthetic trajectory generation | paper/code review만 |
 | ReasoningBank official | full memory extraction/eval pipeline과 benchmark setup | `ReasoningBank-style` prompt baseline으로 대체 |
 | WebArena/BrowserGym interactive | GPU보다 Docker/env/API/reset-fork 비용이 큼 | v1 계획으로만 둠 |
@@ -127,13 +128,14 @@ Ours:
 | ActionEngine | 0 | 공식 repo 못 찾음 | - | state-machine memory가 가깝지만 web transition memory보다는 programmatic GUI execution에 가까움 |
 | WAC | 0 | 공식 repo 못 찾음 | - | action correction에는 관련 있지만 memory baseline은 아님 |
 | R-WoM | 0 | 공식 repo 못 찾음 | - | 최신 web-world-model 방향은 좋지만 내일 실행 baseline으로는 불확실 |
+| WebEvolver | 6 | [Tencent/SelfEvolvingAgent](https://github.com/Tencent/SelfEvolvingAgent) | 100 / 5 | co-evolving world model은 흥미롭지만, 지금 GPU 여건에서는 WebDreamer가 더 직접적인 runnable baseline이다 |
 
 ## 7. 미팅에서 말할 한 줄 결론
 
 ```text
 Baseline은 memory 계열 3개와 world-model 계열 3개로 나누겠습니다.
 Memory 쪽은 Synapse, AWM, ReasoningBank로 trajectory/workflow/reasoning memory를 커버하고,
-world-model 쪽은 WMA, WebEvolver, RAP로 web next-state prediction, co-evolving WM, 근본 LLM world-model planning을 커버하겠습니다.
+world-model 쪽은 WMA, WebDreamer, RAP로 web next-state prediction, multimodal web imagination, 근본 LLM world-model planning을 커버하겠습니다.
 R-WoM/WebATLAS/DynaWeb/WebWorld는 우리와 가까운 최신 related work지만 공식 코드가 확인되지 않아 paper-level로만 비교하겠습니다.
 ```
 

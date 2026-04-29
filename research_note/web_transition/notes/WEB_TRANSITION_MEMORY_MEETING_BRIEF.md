@@ -49,7 +49,7 @@ flowchart LR
 | Trajectory memory | Synapse | 유사한 성공 trajectory exemplar | 후보 action별 결과는 예측하지 않음 |
 | Workflow memory | AWM | reusable sub-routine/workflow | 중간 UI 변화와 modal/distractor 대응이 약함 |
 | Reasoning/skill memory | ReasoningBank, SkillRL | lesson, pitfall, skill instruction | 전략은 주지만 UI transition 자체는 모델링하지 않음 |
-| Learned world model | WMA, WebEvolver | `O_t, A_i -> predicted next observation` | next-state를 생성하지만 지식이 model parameter에 있고 hallucination/provenance 문제가 있음 |
+| Learned world model | WMA, WebDreamer (backup: WebEvolver) | `O_t, A_i -> predicted next observation` | next-state를 생성하지만 지식이 model parameter에 있고 hallucination/provenance 문제가 있음 |
 | World-model planning | RAP | imagined state/reward + search trace | runnable한 근본 baseline이지만 web-specific은 아님 |
 | Paper-level related work | R-WoM, WebATLAS, DynaWeb, WebWorld, ActionEngine | tutorial/state graph/experience 기반 simulation or program | 가깝지만 공식 runnable repo가 불확실해 핵심 baseline에서는 제외 |
 | Ours | Transition Memory | candidate별 expected delta, failure signal, verification rule, update rule | `what to do`보다 `what happens if we do it`에 초점 |
@@ -239,7 +239,7 @@ LLM prompted world model은 빠른 baseline으로 좋다. 하지만 WMA 논문�
 
 ### 2분: 기존 연구
 
-Synapse/AWM/ReasoningBank는 memory를 더 좋은 abstraction으로 바꾸는 흐름이다. WMA/WebEvolver/RAP는 action outcome을 simulate하거나 world-model planning을 하는 흐름이다. 하지만 memory 쪽은 transition prediction이 약하고, world model 쪽은 inspectable/updateable memory가 약하다.
+Synapse/AWM/ReasoningBank는 memory를 더 좋은 abstraction으로 바꾸는 흐름이다. WMA/WebDreamer/RAP(backup: WebEvolver)는 action outcome을 simulate하거나 world-model planning을 하는 흐름이다. 하지만 memory 쪽은 transition prediction이 약하고, world model 쪽은 inspectable/updateable memory가 약하다.
 
 ### 2분: Ours
 
@@ -258,7 +258,7 @@ v0는 Mind2Web offline으로 action ranking과 logged transition prediction을 �
 내일 미팅에서 받을 피드백은 세 가지면 된다.
 
 1. 이 problem framing이 충분히 새롭고 중요한가?
-2. 가장 강한 baseline은 WMA/WebEvolver/RAP 중 무엇으로 잡아야 하는가?
+2. 가장 강한 baseline은 WMA/WebDreamer/RAP 중 무엇으로 잡아야 하는가?
 3. v0를 Mind2Web으로 시작할지, 바로 BrowserGym/WebArena subset으로 갈지?
 
 ## 11. 오늘 남은 작업 체크리스트

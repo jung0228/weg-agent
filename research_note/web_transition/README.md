@@ -6,11 +6,11 @@
 
 - 논문과 GitHub를 참고해 IO 스키마와 baseline 축을 정리했다.
 - 실제 실행은 `Letsur + Gemini` API 기반 프로토타입이다.
-- `WMA official`, `WebEvolver official`, `ReasoningBank full pipeline` 같은 GPU/서버 작업은 아직 별도 단계다.
+- `WMA official`, `WebDreamer local 7B`, `WebEvolver official`, `ReasoningBank full pipeline` 같은 GPU/서버 작업은 아직 별도 단계다.
 
 ## 들어있는 것
 
-- `notes/`: baseline 선정, IO 예시, meeting brief, research plan, API audit, checklist
+- `notes/`: baseline 선정, IO 예시, meeting brief, research plan, API audit, checklist, world-model GPU map
 - `baselines/`: baseline comparison용 실행 스크립트
 - `README.md`: 전체 상태 요약
 
@@ -46,6 +46,7 @@ research_note/web_transition/
     WEB_TRANSITION_BASELINE_IO_EXAMPLES.md
     WEB_TRANSITION_MEMORY_MEETING_BRIEF.md
     WEB_TRANSITION_MEMORY_RESEARCH_PLAN.md
+    WEB_TRANSITION_WORLD_MODEL_GPU_MAP.md
     WEB_TRANSITION_REPO_AND_API_AUDIT.md
     WEB_TRANSITION_TOMORROW_CHECKLIST.md
   baselines/
@@ -87,8 +88,9 @@ web transition 연구 자체는 `research_note/web_transition/`를 기준점으�
 | Synapse | trajectory memory | `trajectory_exemplar` | no |
 | AWM | workflow memory | `workflow` | no |
 | ReasoningBank | reasoning memory | `reasoning_lesson` | no |
-| WMA | world-model style prediction | `imagined_next_observation` | server/offical |
-| RAP | planning + imagined rollout | `imagined_rollout` | no for API demo, yes for full official style |
+| WMA | text world-model prediction | `imagined_next_observation` | 8B / 24GB class |
+| WebDreamer | multimodal web world model | `imagined_page_change` | 7B / 24GB class |
+| RAP | planning + imagined rollout | `imagined_rollout` | 33B / 4x24GB official |
 | Ours | transition memory | `transition_memory` | no |
 
 ## 왜 이 조합인가
@@ -115,7 +117,7 @@ python3 research_note/web_transition/baselines/letsur_transition_demo.py flight 
 baseline 비교를 한 번에 보고 싶으면:
 
 ```bash
-for b in synapse awm reasoningbank wma rap ours; do
+for b in synapse awm reasoningbank wma webdreamer rap ours; do
   python3 research_note/web_transition/baselines/letsur_transition_demo.py flight --baseline "$b"
 done
 ```
@@ -123,12 +125,13 @@ done
 ## 서버로 넘길 작업
 
 - `WMA official`
+- `WebDreamer official`
 - `WebEvolver official`
 - `ReasoningBank full pipeline`
 - 실제 `WebArena / BrowserGym` 재현
 
 ## 내일까지의 핵심
 
-같은 입력에 대해 `Synapse / AWM / ReasoningBank / WMA / RAP / Ours`가
+같은 입력에 대해 `Synapse / AWM / ReasoningBank / WMA / WebDreamer / RAP / Ours`가
 무엇을 저장하고 무엇을 출력하는지 `memory_view / expected_transition / failure_signal / verification_rule`
 슬롯으로 보여주는 것이다.

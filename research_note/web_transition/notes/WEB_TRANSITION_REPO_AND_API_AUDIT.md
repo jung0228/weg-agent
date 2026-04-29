@@ -14,7 +14,7 @@
 3. verification_rule
 ```
 
-API key만 있으면 이 3개 예시는 GPU 없이 돌릴 수 있다. 반대로 논문 official reproduction은 대부분 환경 세팅, benchmark data, Docker, local model inference가 필요하다.
+API key만 있으면 이 3개 예시는 GPU 없이 돌릴 수 있다. WebDreamer는 24GB GPU가 있으면 local 7B로 붙이는 쪽이 더 자연스럽다. 반대로 논문 official reproduction은 대부분 환경 세팅, benchmark data, Docker, local model inference가 필요하다.
 
 ## 1. 가져온 GitHub repo
 
@@ -26,6 +26,7 @@ API key만 있으면 이 3개 예시는 GPU 없이 돌릴 수 있다. 반대로 
 | AWM | `research_note/baselines/_repos/agent-workflow-memory` | `8c0ff8c` | Mind2Web/WebArena README, `offline_induction.py`, `run_mind2web.py`, `run.py` |
 | ReasoningBank | `research_note/baselines/_repos/reasoning-bank` | `ea65efd` | README, WebArena pipeline, `induce_memory.py`, `memory_management.py` |
 | WMA | `research_note/baselines/_repos/WMA-Agents` | `dd89464` | README, `run_w_world_model.py`, `world_model_agent.py`, WebArena scripts |
+| WebDreamer | `research_note/baselines/_repos/WebDreamer` | `e589411` | `README.md`, `world_model.py`, `controller.py`, `simulation_scoring.py` |
 | WebEvolver | `research_note/baselines/_repos/SelfEvolvingAgent` | `a82450e` | `WebEvolver/README.md`, world model SFT/synthesis scripts |
 | RAP | `research_note/baselines/_repos/RAP` | `774817c` | README, MCTS code, run scripts |
 
@@ -39,6 +40,7 @@ API key만 있으면 이 3개 예시는 GPU 없이 돌릴 수 있다. 반대로 
 | AWM API prototype | 가능 | reusable workflow | workflow-guided next action |
 | ReasoningBank-style | 가능 | lesson / pitfall | strategy + next action |
 | WMA API prototype | 가능 | 없음 또는 prompt world model | candidate action별 predicted transition |
+| WebDreamer official / local 7B | 가능 | screenshot + action imagination | imagined page change / a11y tree / html |
 | RAP-style | 가능 | search trace | imagined state/reward + selected action |
 | Ours | 가능 | transition memory | expected transition + failure signal + verification rule |
 
@@ -50,6 +52,7 @@ API key만 있으면 이 3개 예시는 GPU 없이 돌릴 수 있다. 반대로 
 | AWM | Mind2Web `offline_induction.py`, WebArena `run.py` | Mind2Web/WebArena data/env 필요. API agent 자체는 가능 |
 | ReasoningBank | WebArena `pipeline_memory.py`, `induce_memory.py` | WebArena, autoeval, embedding/model client 세팅 필요 |
 | WMA | `bash scripts/parallel_run_webarena_wma.sh` | WebArena Docker + world/value model adapter 또는 remote model endpoint 필요 |
+| WebDreamer | `vllm serve osunlp/Dreamer-7B ...` | 8B image-text model이라 24GB 1장에서도 가능성이 높지만, 이미지+긴 컨텍스트는 GPU 여유가 필요 |
 | WebEvolver | Docker agent service + vLLM world model/policy model service | co-evolving loop와 SFT/synthetic trajectory pipeline이 큼 |
 | RAP | LLaMA-33B 기준 4x24GB GPU 문서화 | official은 GPU heavy. 내일은 API-based search trace만 참고 |
 

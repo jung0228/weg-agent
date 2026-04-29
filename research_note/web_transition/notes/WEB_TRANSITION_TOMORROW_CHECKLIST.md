@@ -45,7 +45,7 @@ World-model style:
 | baseline | 내일 말할 역할 |
 |---|---|
 | WMA API prototype / WMA official | next-state prediction baseline |
-| WebEvolver | co-evolving world model baseline |
+| WebDreamer | multimodal web world model baseline |
 | RAP-style | runnable LLM world-model planning fallback |
 
 따로 언급할 가까운 related work:
@@ -82,6 +82,7 @@ World-model style:
 | 방법 | 필요한 이유 | 내일까지 할지 |
 |---|---|---|
 | WMA official | Llama-3.1-8B world/value model adapter inference 또는 fine-tuning | 하지 않음. WMA API prototype으로 대체 |
+| WebDreamer local 7B / official | screenshot + action imagination, vLLM/image-text inference, 24GB GPU면 직접 돌릴 수 있음 | 가능하면 넣기. 24GB GPU가 있으면 WebDreamer로 실제 예시를 하나 돌려본다 |
 | WebEvolver official | co-evolving world model/agent loop, synthetic trajectory generation, 환경 세팅 | 하지 않음. paper/code review만 |
 | ReasoningBank official full loop | memory extraction/evaluation pipeline을 제대로 돌리려면 API/환경 세팅이 큼 | v0는 ReasoningBank-style로 대체 |
 | WebArena/BrowserGym interactive | GPU보다는 Docker/env/API 세팅과 reset/fork 비용이 큼 | 내일은 계획만 말함 |
@@ -230,7 +231,7 @@ BrowserGym: GitHub 1210 stars
 내일은 결론을 내려고 하지 말고, 아래 세 가지를 물어본다.
 
 1. `transition memory` 문제정의가 충분히 중요한가?
-2. baseline을 `Synapse/AWM/ReasoningBank/WMA/WebEvolver/RAP`로 잡는 게 적절한가?
+2. baseline을 `Synapse/AWM/ReasoningBank/WMA/WebDreamer/RAP`로 잡는 게 적절한가?
 3. 첫 실험을 `Mind2Web offline`으로 시작할지, 바로 `WebArena/BrowserGym interactive`로 갈지?
 
 ## 5. 내일 미팅용 최종 멘트

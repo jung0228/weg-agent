@@ -93,6 +93,9 @@ def memory_view_for_action(example: dict, action: dict, baseline: str) -> str:
     if baseline == "wma":
         predicted = transition_for_action(action, example["retrieved_transition_memory"])["expected_transition"]
         return f"imagined next observation: {predicted}"
+    if baseline == "webdreamer":
+        predicted = transition_for_action(action, example["retrieved_transition_memory"])["expected_transition"]
+        return f"imagined webpage change from screenshot: {predicted}"
     if baseline == "rap":
         predicted = transition_for_action(action, example["retrieved_transition_memory"])["expected_transition"]
         return f"imagined rollout: {predicted}; planning trace should maximize task progress"
@@ -163,4 +166,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

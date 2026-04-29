@@ -46,6 +46,15 @@ BASELINE_PROFILES: dict[str, dict[str, str]] = {
         ),
         "post_update": "store the most useful next-state prediction for later look-ahead",
     },
+    "webdreamer": {
+        "display_name": "WebDreamer",
+        "family": "world_model",
+        "stored_unit": "imagined_page_change",
+        "memory_view_instruction": (
+            "describe the imagined webpage change from the screenshot and candidate action"
+        ),
+        "post_update": "store the strongest simulated page change for later web look-ahead",
+    },
     "rap": {
         "display_name": "RAP",
         "family": "world_model",
@@ -110,4 +119,3 @@ def build_system_prompt(baseline: str) -> str:
         "Keep expected_transition concrete, keep failure_signal observable, and keep verification_rule tied to a visible UI check."
         " When retrieved_transition_memory directly supports a candidate that advances the task, prefer that memory-supported action over exploratory UI actions such as opening sort menus."
     )
-

@@ -23,7 +23,7 @@
 | 방법 | 역할 | GitHub | 선정 이유 |
 |---|---|---|---|
 | WMA | learned web world model baseline | [kyle8581/WMA-Agents](https://github.com/kyle8581/WMA-Agents) | `O_t + A_i -> O*_{t+1}`를 가장 정면으로 다룸 |
-| WebEvolver | co-evolving world model baseline | [Tencent/SelfEvolvingAgent](https://github.com/Tencent/SelfEvolvingAgent) | world model을 synthetic trajectory와 look-ahead에 같이 사용 |
+| WebDreamer | multimodal web world model baseline | [OSU-NLP-Group/WebDreamer](https://github.com/OSU-NLP-Group/WebDreamer) | screenshot + action 기반으로 webpage change를 시뮬레이션할 수 있음 |
 | RAP | runnable world-model planning fallback | [Ber666/RAP](https://github.com/Ber666/RAP) | web-specific은 아니지만 LLM-as-world-model + planning의 근본 baseline |
 
 ## Paper-Level Related Work
@@ -34,12 +34,13 @@
 | DynaWeb | 2026 web world model + model-based RL 방향. 공식 runnable repo를 찾지 못함 |
 | WebWorld | 2026 대규모 web simulator/world model 방향. 공개 repo 확인이 불확실함 |
 | WebATLAS | memory + action simulation이라 가깝지만 공식 repo를 찾지 못함 |
+| WebEvolver | co-evolving world model이지만 official reconstruction이 무겁고, 지금은 WebDreamer가 더 직접적인 runnable baseline이다 |
 | ActionEngine | state-machine memory와 관련 있지만 web transition memory보다는 programmatic GUI execution 쪽 |
 
 ## 내일 말할 요약
 
 ```text
 Memory baseline은 Synapse, AWM, ReasoningBank로 trajectory/workflow/reasoning lesson을 커버하고,
-world-model baseline은 WMA, WebEvolver, RAP로 next-state prediction, co-evolving WM, runnable world-model planning을 커버하겠습니다.
+world-model baseline은 WMA, WebDreamer, RAP로 next-state prediction, multimodal web imagination, runnable world-model planning을 커버하겠습니다.
 공식 코드가 없는 최신 논문들은 core baseline이 아니라 related work로만 두겠습니다.
 ```
