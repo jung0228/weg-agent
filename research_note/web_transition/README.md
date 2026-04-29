@@ -55,6 +55,7 @@ research_note/web_transition/
     letsur_transition_demo.py
     local_transition_dry_run.py
     package_transition_results.py
+    transition_viewer.py
 ```
 
 ### 로컬 결과물
@@ -113,6 +114,14 @@ export LETSUR_API_KEY=...
 export LETSUR_MODEL=gemini-3-flash-preview
 python3 research_note/web_transition/baselines/letsur_transition_demo.py flight --baseline ours
 ```
+
+기존 결과를 웹 뷰어로 다시 렌더링하려면:
+
+```bash
+python3 research_note/web_transition/baselines/transition_viewer.py eval_results/letsur/gemini-3-flash-preview/20260429_164258
+```
+
+이 명령은 각 task의 `viz_io.html`를 step-by-step 대시보드로 다시 만들고, run 루트에 `transition_viewer.html` 인덱스를 생성한다.
 
 baseline 비교를 한 번에 보고 싶으면:
 
