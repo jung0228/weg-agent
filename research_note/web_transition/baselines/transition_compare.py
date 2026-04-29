@@ -28,12 +28,7 @@ from transition_viewer import (
     chip,
     discover_task_dirs,
     esc,
-    first_line,
     load_task_bundle,
-    render_candidate_cards,
-    render_memory_cards,
-    render_observation,
-    render_step_cards,
 )
 
 FAMILY_LABELS = {
@@ -47,6 +42,7 @@ FAMILY_TONES = {
 }
 
 CHROME_BIN = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+STEP_DIR_RE = re.compile(r"^S(\d+)$")
 
 
 def load_bundles_from_path(path: Path) -> list[dict[str, Any]]:
@@ -123,6 +119,34 @@ def natural_sort_key(path: Path) -> tuple[Any, ...]:
     return tuple(key)
 
 
+def discover_step_dirs(task_dir: Path) -> list[Path]:
+    if not task_dir.exists():
+        return []
+    step_dirs = [path for path in task_dir.iterdir() if path.is_dir() and STEP_DIR_RE.fullmatch(path.name)]
+    return sorted(
+        step_dirs,
+        key=lambda path: int(STEP_DIR_RE.fullmatch(path.name).group(1)),  # type: ignore[union-attr]
+    )
+
+
+def read_text_or_placeholder(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except Exception:
+        return f"[missing: {path.name}]"
+
+
+def render_raw_file_block(label: str, content: str) -> str:
+    return f"""
+      <div class="raw-file">
+        <div class="raw-file-head">
+          <span class="raw-file-name">{esc(label)}</span>
+        </div>
+        <pre>{esc(content or "—")}</pre>
+      </div>
+    """
+
+
 def find_task_images(task_dir: Path) -> list[Path]:
     patterns = ["screenshot*.png", "screenshot*.webp", "screenshot*.jpg", "step*.png", "*.png"]
     seen: list[Path] = []
@@ -169,18 +193,47 @@ def ensure_snapshot_asset(bundle: dict[str, Any], compare_root: Path) -> dict[st
     source_label = str(bundle.get("source_label", "source"))
     asset_dir = compare_root / ".web_transition_assets" / slugify(task_name) / slugify(source_label)
     asset_dir.mkdir(parents=True, exist_ok=True)
-    html_path = asset_dir / "snapshot.html"
-    png_path = asset_dir / "snapshot.png"
-
-    html_path.write_text(render_snapshot_document(bundle), encoding="utf-8")
+    viz_io_path = task_dir / "viz_io.html"
+    png_name = "raw_viz_io.png" if viz_io_path.exists() else "snapshot.png"
+    png_path = asset_dir / png_name
     src_paths = [
         task_dir / "result.json",
         task_dir / "interact_messages.json",
         task_dir / "metadata.json",
         task_dir / "user_prompt.txt",
         task_dir / "system_prompt.txt",
+        viz_io_path,
     ]
     source_mtime = max((p.stat().st_mtime for p in src_paths if p.exists()), default=0.0)
+
+    if viz_io_path.exists():
+        if (not png_path.exists()) or png_path.stat().st_mtime < source_mtime:
+            try:
+                subprocess.run(
+                    [
+                        CHROME_BIN,
+                        "--headless",
+                        "--disable-gpu",
+                        "--hide-scrollbars",
+                        "--window-size=1600,1200",
+                        f"--screenshot={png_path}",
+                        f"file://{viz_io_path.resolve()}",
+                    ],
+                    check=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except Exception:
+                pass
+
+        if png_path.exists():
+            try:
+                return {"kind": "image", "src": os.path.relpath(png_path, start=compare_root)}
+            except ValueError:
+                return {"kind": "image", "src": str(png_path)}
+
+    html_path = asset_dir / "snapshot.html"
+    html_path.write_text(render_snapshot_document(bundle), encoding="utf-8")
     if (not png_path.exists()) or png_path.stat().st_mtime < max(source_mtime, html_path.stat().st_mtime):
         try:
             subprocess.run(
@@ -297,17 +350,6 @@ def render_task_preview(bundle: dict[str, Any]) -> str:
 
 
 def render_task_snapshot_panel(bundle: dict[str, Any], compare_root: Path) -> str:
-    payload = bundle.get("payload", {})
-    observation = payload.get("observation", {})
-    if not isinstance(observation, dict):
-        observation = {}
-    visible_regions = observation.get("visible_regions", [])
-    if not isinstance(visible_regions, list):
-        visible_regions = []
-    candidate_actions = payload.get("candidate_actions", [])
-    if not isinstance(candidate_actions, list):
-        candidate_actions = []
-
     asset = ensure_snapshot_asset(bundle, compare_root)
     src = asset.get("src", "")
     kind = asset.get("kind", "image")
@@ -315,273 +357,73 @@ def render_task_snapshot_panel(bundle: dict[str, Any], compare_root: Path) -> st
         media = f'<iframe class="snapshot-media snapshot-iframe" src="{esc(src)}" loading="lazy"></iframe>'
     else:
         media = f'<img class="snapshot-media snapshot-img" src="{esc(src)}" alt="S1 state snapshot" />'
-
-    region_chips = "".join(chip(region, "indigo") for region in visible_regions) or '<div class="small">-</div>'
-    summary_bits = [
-        chip(observation.get("page_type", "page"), "teal"),
-        chip(f"{len(visible_regions)} regions", "gray"),
-        chip(f"{len(candidate_actions)} actions", "orange"),
-    ]
+    task_dir = Path(bundle.get("task_dir", ""))
+    viz_io = task_dir / "viz_io.html"
 
     return f"""
-      <section class="panel snapshot-panel">
-        <div class="section-label">S1 State Image</div>
+      <section class="panel snapshot-panel raw-snapshot-panel">
+        <div class="section-label">Raw task image</div>
         <div class="snapshot-stage">
           <div class="snapshot-frame">
             {media}
           </div>
           <div class="snapshot-caption">
             <span class="snapshot-step">S1</span>
-            <span class="snapshot-title">{esc(observation.get("page_type", "—"))}</span>
+            <span class="snapshot-title">visual snapshot</span>
             <span class="snapshot-subtitle">{esc(bundle.get("task_name", "Task"))}</span>
           </div>
-          <div class="chips">
-            {''.join(summary_bits)}
-          </div>
           <div class="small" style="line-height:1.7">
-            <b>Visible regions:</b> {region_chips}
+            <b>Source:</b> {esc(str(viz_io)) if viz_io.exists() else "generated snapshot fallback"}
           </div>
         </div>
       </section>
     """
 
 
-def render_synapse_trace(bundle: dict[str, Any]) -> str:
-    payload = bundle.get("payload", {})
-    observation = payload.get("observation", {})
-    if not isinstance(observation, dict):
-        observation = {}
-    memories = payload.get("retrieved_transition_memory", [])
-    if not isinstance(memories, list):
-        memories = []
-    result = bundle.get("result", {})
-    if not isinstance(result, dict):
-        result = {}
-
-    selected_id = str(result.get("selected_action", ""))
-    selected_eval = {}
-    for item in result.get("candidate_evaluations", []) or []:
-        if isinstance(item, dict) and str(item.get("id", "")) == selected_id:
-            selected_eval = item
-            break
-
-    abstracted_state = ", ".join(
-        part
-        for part in [
-            str(observation.get("page_type", "page")),
-            ", ".join(observation.get("visible_regions", []) or []),
-        ]
-        if part
-    )
-
-    memory_cards = render_memory_cards(payload)
-    memory_cards_html = (
-        f'<div class="stack" style="margin-top:10px">{memory_cards}</div>'
-        if memory_cards and "No retrieved memory" not in memory_cards
-        else '<div class="small" style="margin-top:10px">No retrieved trajectory exemplar was provided.</div>'
-    )
-
-    return f"""
-      <div class="card mini trace-bridge" style="margin-top:12px">
-        <div class="card-title">
-          <h4>Synapse intermediate IO</h4>
-          <span class="meta">trajectory_exemplar</span>
-        </div>
-        <div class="small"><b>Stage 1 · State abstraction</b></div>
-        <div class="small">Input: raw flight screenshot / DOM / observation.</div>
-        <div class="small">Output: {esc(abstracted_state or "compact task state")}</div>
-        <div style="height:8px"></div>
-        <div class="small"><b>Stage 2 · Exemplar retrieval</b></div>
-        <div class="small">Input: abstracted state + task metadata.</div>
-        <div class="small">Output: retrieved trajectory exemplar(s) that match this step.</div>
-        {memory_cards_html}
-        <div style="height:8px"></div>
-        <div class="small"><b>Stage 3 · TaE prompting</b></div>
-        <div class="small">Input: current history + retrieved exemplar.</div>
-        <div class="small">Output: {esc(selected_id or "selected action")} · {esc(first_line(str(selected_eval.get("expected_transition", "")), 160))}</div>
-        <div class="small">Memory view: {esc(first_line(str(selected_eval.get("memory_view", "")), 180))}</div>
-        <div style="height:8px"></div>
-        <div class="small"><b>Stage 4 · Trajectory writeback</b></div>
-        <div class="small">Output: append the successful or failed exemplar back into memory for later reuse.</div>
-      </div>
-    """
-
-
-def render_step_snapshot_document(
-    bundle: dict[str, Any],
-    compare_root: Path,
-    step_index: int,
-    action: dict[str, Any],
-    evaluation: dict[str, Any],
-) -> str:
-    snapshot_asset = ensure_snapshot_asset(bundle, compare_root)
-    snapshot_kind = snapshot_asset.get("kind", "image")
-    snapshot_src = snapshot_asset.get("src", "")
-    snapshot_ref = Path(snapshot_src).name if snapshot_src else ""
-    if snapshot_kind == "html":
-        snapshot_media = (
-            f'<iframe class="snapshot-media step-snapshot-iframe" src="{esc(snapshot_ref)}" '
-            'loading="lazy"></iframe>'
-        )
-    else:
-        snapshot_media = (
-            f'<img class="snapshot-media step-snapshot-img" src="{esc(snapshot_ref)}" '
-            'alt="task snapshot" />'
-        )
-
-    selected = bundle.get("result", {}).get("selected_action") == action.get("id")
-    badge_tone = "teal" if selected else "gray"
-    task_name = esc(bundle.get("task_name", "Task"))
-    candidate_title = esc(action.get("surface", action.get("id", "")))
-    candidate_id = esc(action.get("id", "candidate"))
-    expected = esc(evaluation.get("expected_transition", "—"))
-    failure = esc(evaluation.get("failure_signal", "—"))
-    verify = esc(evaluation.get("verification_rule", "—"))
-    memory_view = esc(evaluation.get("memory_view", "—"))
-    step_label = f"Step {step_index}"
-
-    return f"""<!doctype html>
-<html lang="ko">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>{task_name} · {candidate_id} · {step_label}</title>
-  <style>{CSS}
-{COMPARE_CSS}</style>
-</head>
-<body>
-  <div class="page" style="padding:24px">
-    <section class="panel step-snapshot-sheet">
-      <div class="section-label">Step screenshot</div>
-      <div class="step-snapshot-head">
-        <div>
-          <div class="chips" style="margin-bottom:8px">
-            {chip(step_label, "indigo")}
-            {chip(candidate_id, "gray")}
-            {chip(bundle.get("metadata", {}).get("baseline", "") or bundle.get("metadata", {}).get("model", ""), badge_tone)}
-          </div>
-          <h2 style="margin:0 0 6px">{esc(bundle.get("metadata", {}).get("baseline") or bundle.get("metadata", {}).get("model") or "model")} · {candidate_title}</h2>
-          <div class="small">{esc(bundle.get("task_name", "Task"))}</div>
-        </div>
-        <div class="small" style="max-width:28ch; text-align:right; line-height:1.6">
-          <b>{esc("Selected" if selected else "Candidate")}</b><br />
-          {esc(first_line(evaluation.get("memory_view", ""), 120))}
-        </div>
-      </div>
-      <div class="step-snapshot-layout">
-        <div class="snapshot-frame" style="margin:0">
-          {snapshot_media}
-        </div>
-        <div class="step-snapshot-copy">
-          <div class="small"><b>Input:</b> observation + candidate action</div>
-          <div class="small"><b>Expected transition:</b> {expected}</div>
-          <div class="small"><b>Failure signal:</b> {failure}</div>
-          <div class="small"><b>Verification rule:</b> {verify}</div>
-          <div class="small"><b>Memory view:</b> {memory_view}</div>
-        </div>
-      </div>
-    </section>
-  </div>
-</body>
-</html>
-"""
-
-
-def ensure_step_snapshot_asset(
-    bundle: dict[str, Any],
-    compare_root: Path,
-    step_index: int,
-    action: dict[str, Any],
-    evaluation: dict[str, Any],
-) -> dict[str, str]:
+def render_raw_step_gallery(bundle: dict[str, Any], compare_root: Path) -> str:
     task_dir = Path(bundle.get("task_dir", ""))
-    task_name = str(bundle.get("task_name", task_dir.name or "task"))
-    source_label = str(bundle.get("source_label", "source"))
-    asset_dir = compare_root / ".web_transition_assets" / slugify(task_name) / slugify(source_label)
-    asset_dir.mkdir(parents=True, exist_ok=True)
-    html_path = asset_dir / f"step_{step_index}.html"
-    png_path = asset_dir / f"step_{step_index}.png"
-
-    html_path.write_text(
-        render_step_snapshot_document(bundle, compare_root, step_index, action, evaluation),
-        encoding="utf-8",
-    )
-    src_paths = [
-        task_dir / "result.json",
-        task_dir / "interact_messages.json",
-        task_dir / "metadata.json",
-        task_dir / "user_prompt.txt",
-        task_dir / "system_prompt.txt",
-        task_dir / "viz_io.html",
-    ]
-    source_mtime = max((p.stat().st_mtime for p in src_paths if p.exists()), default=0.0)
-    if (not png_path.exists()) or png_path.stat().st_mtime < max(source_mtime, html_path.stat().st_mtime):
-        try:
-            subprocess.run(
-                [
-                    CHROME_BIN,
-                    "--headless",
-                    "--disable-gpu",
-                    "--hide-scrollbars",
-                    "--window-size=1600,1100",
-                    f"--screenshot={png_path}",
-                    f"file://{html_path}",
-                ],
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        except Exception:
-            try:
-                return {"kind": "html", "src": os.path.relpath(html_path, start=compare_root)}
-            except ValueError:
-                return {"kind": "html", "src": str(html_path)}
-
-    try:
-        return {"kind": "image", "src": os.path.relpath(png_path, start=compare_root)}
-    except ValueError:
-        return {"kind": "image", "src": str(png_path)}
-
-
-def render_step_snapshot_gallery(bundle: dict[str, Any], compare_root: Path) -> str:
-    payload = bundle.get("payload", {})
-    result = bundle.get("result", {})
-    candidate_actions = payload.get("candidate_actions", [])
-    if not isinstance(candidate_actions, list) or not candidate_actions:
-        return '<div class="small">No candidate actions.</div>'
-    evaluations = result.get("candidate_evaluations", [])
-    if not isinstance(evaluations, list):
-        evaluations = []
-    evaluation_by_id = {
-        str(item.get("id", "")): item
-        for item in evaluations
-        if isinstance(item, dict)
-    }
+    step_dirs = discover_step_dirs(task_dir)
+    if not step_dirs:
+        return '<div class="small">No raw step directories found.</div>'
 
     cards = []
-    for step_index, action in enumerate(candidate_actions[:3], start=1):
-        if not isinstance(action, dict):
-            continue
-        candidate_id = str(action.get("id", ""))
-        evaluation = evaluation_by_id.get(candidate_id, {})
-        asset = ensure_step_snapshot_asset(bundle, compare_root, step_index, action, evaluation)
-        caption = f"Step {step_index} · {action.get('id', '')} · {action.get('surface', '')}"
+    for step_dir in step_dirs:
+        system_prompt = read_text_or_placeholder(step_dir / "system_prompt.txt")
+        user_prompt = read_text_or_placeholder(step_dir / "user_prompt.txt")
+        metadata = read_text_or_placeholder(step_dir / "metadata.json")
+        llm_output = read_text_or_placeholder(step_dir / "llm_output.json")
+        acc_tree = read_text_or_placeholder(step_dir / "acc_tree.txt")
         cards.append(
             f"""
-            <figure class="step-shot">
-              <img class="step-shot-img" src="{esc(asset.get('src', ''))}" alt="{esc(caption)}" />
-              <figcaption>
-                <div class="step-shot-caption">{esc(caption)}</div>
-                <div class="small" style="margin-top:4px">{esc(first_line(evaluation.get("expected_transition", ""), 120))}</div>
-              </figcaption>
-            </figure>
+            <article class="raw-step-card">
+              <div class="raw-step-head">
+                <div>
+                  <div class="raw-step-step">{esc(step_dir.name)}</div>
+                  <div class="raw-step-title">Raw input / output</div>
+                </div>
+                <div class="meta">no parsing</div>
+              </div>
+              <div class="raw-step-grid">
+                <div class="raw-step-column">
+                  <div class="raw-section-label">Input</div>
+                  {render_raw_file_block("system_prompt.txt", system_prompt)}
+                  {render_raw_file_block("user_prompt.txt", user_prompt)}
+                  {render_raw_file_block("metadata.json", metadata)}
+                </div>
+                <div class="raw-step-column">
+                  <div class="raw-section-label">Output</div>
+                  {render_raw_file_block("llm_output.json", llm_output)}
+                  {render_raw_file_block("acc_tree.txt", acc_tree)}
+                </div>
+              </div>
+            </article>
             """
         )
 
     return f"""
-      <section class="step-gallery">
-        <div class="section-label">Step snapshots (1-3)</div>
-        <div class="step-grid">
+      <section class="raw-step-gallery">
+        <div class="section-label">Raw step IO</div>
+        <div class="stack-inner">
           {''.join(cards)}
         </div>
       </section>
@@ -678,8 +520,6 @@ def render_model_card(bundle: dict[str, Any], compare_root: Path) -> str:
     baseline_name = str(metadata.get("baseline") or "").strip() or compact_source_label(bundle)
     profile = BASELINE_PROFILES.get(baseline_name, {})
     selected_action = result.get("selected_action", "—")
-    candidate_count = len(result.get("candidate_evaluations", []) or [])
-    memory_count = len(bundle.get("payload", {}).get("retrieved_transition_memory", []) or [])
     task_name = bundle.get("task_name", "Task")
     try:
         rel_html = os.path.relpath(task_dir / "viz_io.html", start=compare_root)
@@ -688,8 +528,11 @@ def render_model_card(bundle: dict[str, Any], compare_root: Path) -> str:
         rel_html = str(task_dir / "viz_io.html")
         rel_result = str(task_dir / "result.json")
 
-    synapse_trace = render_synapse_trace(bundle) if baseline_name == "synapse" else ""
-    step_gallery = render_step_snapshot_gallery(bundle, compare_root)
+    step_gallery = render_raw_step_gallery(bundle, compare_root)
+    result_json = read_text_or_placeholder(task_dir / "result.json")
+    metadata_json = read_text_or_placeholder(task_dir / "metadata.json")
+    interact_messages = read_text_or_placeholder(task_dir / "interact_messages.json")
+    assistant_output = read_text_or_placeholder(task_dir / "assistant_output.txt")
 
     return f"""
       <article class="model-card">
@@ -702,16 +545,14 @@ def render_model_card(bundle: dict[str, Any], compare_root: Path) -> str:
           {chip(task_name, "gray")}
         </div>
         {step_gallery}
-        <div class="small" style="margin-top:12px"><b>Reason:</b> {esc(first_line(result.get("selection_reason", ""), 220))}</div>
-        <div class="metric-row compact">
-          <div class="metric"><div class="value">{candidate_count}</div><div class="label">candidates</div></div>
-          <div class="metric"><div class="value">{memory_count}</div><div class="label">memory items</div></div>
-        </div>
-        <div class="small" style="line-height:1.7"><b>Run:</b> {esc(metadata.get("run_id", ""))}</div>
-        {synapse_trace}
         <details style="margin-top:12px">
-          <summary>Run metadata</summary>
-          <pre>{esc(json.dumps(metadata, ensure_ascii=False, indent=2))}</pre>
+          <summary>Bundle raw files</summary>
+          <div class="stack-inner" style="margin-top:10px">
+            {render_raw_file_block("result.json", result_json)}
+            {render_raw_file_block("metadata.json", metadata_json)}
+            {render_raw_file_block("interact_messages.json", interact_messages)}
+            {render_raw_file_block("assistant_output.txt", assistant_output)}
+          </div>
         </details>
         <div class="links" style="margin-top:12px">
           <a class="button-link" href="{esc(rel_html)}">Open task page</a>
@@ -730,19 +571,14 @@ def render_task_section(group: dict[str, Any], compare_root: Path) -> str:
     input_panel = render_task_snapshot_panel(shared_bundle, compare_root)
     model_cards = "".join(render_model_card(bundle, compare_root) for bundle in bundles)
     source_labels = sorted({compact_source_label(bundle) for bundle in bundles if compact_source_label(bundle)})
-    explanation = (
-        "왼쪽은 실제 S1 flight 스크린샷이고, 오른쪽은 baseline별 step 스크린샷이다. "
-        "Synapse는 state abstraction 뒤에 exemplar trajectory를 retrieval해서 TaE prompt에 넣고, 마지막에 그 trajectory를 다시 memory로 써 둔다."
-        if group.get("task_name") == "flight"
-        else "왼쪽은 실제 S1 스크린샷이고, 오른쪽은 baseline별 step 스크린샷이다."
-    )
+    explanation = "왼쪽은 raw task image이고, 오른쪽은 각 baseline의 step 폴더 안 원본 파일(system/user prompt, llm_output, acc_tree, metadata)을 그대로 보여준다."
     return f"""
       <section class="task-section">
         <div class="task-head">
           <div>
             <div class="section-label">Task</div>
             <h2>{esc(group.get("task_name", "Task"))}</h2>
-            <div class="small">{esc(first_line(shared_bundle.get("result", {}).get("selection_reason", "") or shared_bundle.get("payload", {}).get("task", "")))}</div>
+            <div class="small">{esc(shared_bundle.get("payload", {}).get("task", ""))}</div>
             <div class="small task-explainer" style="margin-top:8px; color: var(--muted); line-height:1.65">{esc(explanation)}</div>
           </div>
           <div class="chips">
@@ -1438,6 +1274,10 @@ body {
   overflow: visible;
 }
 
+.raw-snapshot-panel .small {
+  color: var(--muted);
+}
+
 .shared-input {
   align-self: start;
 }
@@ -1456,42 +1296,101 @@ body {
   flex-wrap: wrap;
 }
 
-.step-gallery {
+.raw-step-gallery {
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid rgba(15, 23, 42, 0.08);
 }
 
-.step-grid {
+.raw-step-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.raw-step-column {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.step-shot {
+.raw-step-card {
   margin: 0;
   border: 1px solid rgba(15, 23, 42, 0.10);
   border-radius: 18px;
-  overflow: hidden;
   background: rgba(255, 255, 255, 0.86);
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+  padding: 14px;
 }
 
-.step-shot-img {
-  display: block;
-  width: 100%;
-  height: auto;
+.raw-step-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+  margin-bottom: 10px;
 }
 
-.step-shot figcaption {
-  padding: 10px 12px 12px;
+.raw-step-step {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  font-weight: 800;
 }
 
-.step-shot-caption {
+.raw-step-title {
   font-weight: 900;
-  font-size: 13px;
+  font-size: 14px;
   color: #0f172a;
   line-height: 1.4;
+  margin-top: 4px;
+}
+
+.raw-section-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-weight: 800;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.raw-file {
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.88);
+  overflow: hidden;
+}
+
+.raw-file + .raw-file {
+  margin-top: 10px;
+}
+
+.raw-file-head {
+  padding: 10px 12px 0;
+}
+
+.raw-file-name {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #0f172a;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.raw-file pre {
+  margin: 0;
+  padding: 10px 12px 12px;
+  max-height: 280px;
+  overflow: auto;
+  background: transparent;
+  border: 0;
 }
 
 .step-snapshot-sheet {
@@ -1647,6 +1546,7 @@ pre {
   .hero { flex-direction: column; }
   .model-strip { grid-auto-flow: row; grid-auto-columns: 1fr; }
   .pipeline-io { grid-template-columns: 1fr; }
+  .raw-step-grid { grid-template-columns: 1fr; }
   .step-snapshot-layout { grid-template-columns: 1fr; }
   .step-snapshot-head { flex-direction: column; }
 }
