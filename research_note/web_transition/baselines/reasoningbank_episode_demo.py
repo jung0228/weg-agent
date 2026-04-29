@@ -217,6 +217,10 @@ def build_episode() -> dict[str, Any]:
     return {
         "task": "Book the cheapest flight to Tokyo.",
         "success_criterion": "Select the cheapest organic flight and reach the traveler information step without entering private data.",
+        "initial_bank_note": (
+            "The two initial items are seeded prior-memory examples so the demo can show how ReasoningBank retrieval enters the action prompt. "
+            "A cold-start run could begin with an empty bank and only write items after the first episode."
+        ),
         "initial_bank": initial_bank,
         "steps": steps,
         "judge": {

@@ -1319,7 +1319,7 @@ def render_reasoningbank_executive_summary(episode: dict[str, Any]) -> str:
             "After episode",
             "Memory write",
             f"전체 trajectory + judge={judge.get('output', '—')}를 보고 {extracted_count}개 lesson을 추출한다.",
-            f"bank size: {before_count} → {after_count}",
+            f"seeded prior bank: {before_count} → after episode: {after_count}",
         ),
     ]
     cards = []
@@ -1347,7 +1347,7 @@ def render_reasoningbank_executive_summary(episode: dict[str, Any]) -> str:
           </div>
           <div class="rb-exec-metrics">
             <div><b>{step_count}</b><span>action turns</span></div>
-            <div><b>{before_count} → {after_count}</b><span>memory bank</span></div>
+            <div><b>{before_count} → {after_count}</b><span>seeded prior → final bank</span></div>
             <div><b>{esc(str(judge.get("output") or "—"))}</b><span>judge result</span></div>
           </div>
         </div>
@@ -1362,17 +1362,21 @@ def render_reasoningbank_executive_summary(episode: dict[str, Any]) -> str:
 def render_episode_initial_bank(episode: dict[str, Any]) -> str:
     initial_bank = episode.get("initial_bank", [])
     items = initial_bank if isinstance(initial_bank, list) else []
+    initial_bank_note = str(
+        episode.get("initial_bank_note")
+        or "These are seeded prior-memory examples for the demo, not a claim that a cold-start ReasoningBank run always begins with two items."
+    )
     return f"""
       <article class="rb-episode-card">
         <div class="rb-step-topline">
           <div>
-            <div class="raw-step-step">Initial value</div>
-            <div class="raw-step-title">Memory bank before this task</div>
+            <div class="raw-step-step">Initial value · seeded prior memory</div>
+            <div class="raw-step-title">Memory bank available before this task</div>
           </div>
-          <div class="meta">{len(items)} items</div>
+          <div class="meta">{len(items)} seeded items</div>
         </div>
         <div class="rb-step-note">
-          이 task를 시작할 때 ReasoningBank가 이미 가지고 있는 lesson이다. action LLM은 매 스텝에서 여기서 관련 item을 retrieval해서 prompt input으로 받는다.
+          {esc(initial_bank_note)} action LLM은 매 스텝에서 여기서 관련 item을 retrieval해서 prompt input으로 받는다.
         </div>
         <div class="rb-episode-memory-grid">
           {render_episode_memory_cards([item for item in items if isinstance(item, dict)])}
