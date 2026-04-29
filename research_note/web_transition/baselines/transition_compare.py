@@ -934,6 +934,51 @@ def render_reasoningbank_step_row(
     """
 
 
+def render_reasoningbank_memory_checkpoint(
+    step_label: str,
+    memory_item: dict[str, str],
+    bank_before_count: int,
+    cumulative_items: list[dict[str, str]],
+) -> str:
+    bank_after_count = len(cumulative_items)
+    bank_entries = []
+    for idx, item in enumerate(cumulative_items, start=1):
+        bank_entries.append(
+            f"""
+            <li{' class="is-new"' if idx == bank_after_count else ''}>
+              <b>{esc(item["title"])}</b>
+              <span>{esc(item["description"])}</span>
+            </li>
+            """
+        )
+
+    return f"""
+      <article class="rb-memory-checkpoint">
+        <div class="rb-memory-checkpoint-head">
+          <div>
+            <div class="snapshot-step">Memory bank growth · {esc(step_label)}</div>
+            <div class="rb-memory-checkpoint-title">What gets appended after this trace</div>
+          </div>
+          <div class="meta">{bank_before_count} → {bank_after_count} items</div>
+        </div>
+        <div class="rb-memory-checkpoint-grid">
+          <div class="rb-memory-checkpoint-box">
+            <span>New memory item</span>
+            <strong>{esc(memory_item["title"])}</strong>
+            <p>{esc(memory_item["description"])}</p>
+            <p class="rb-memory-checkpoint-content">{esc(memory_item["content"])}</p>
+          </div>
+          <div class="rb-memory-checkpoint-box">
+            <span>Bank after this step</span>
+            <ol class="rb-memory-checkpoint-list">
+              {''.join(bank_entries)}
+            </ol>
+          </div>
+        </div>
+      </article>
+    """
+
+
 def reasoningbank_memory_items(bundle: dict[str, Any]) -> list[dict[str, str]]:
     task_dir = Path(bundle.get("task_dir", ""))
     result_json = read_text_or_placeholder(task_dir / "result.json")
@@ -1186,7 +1231,7 @@ def render_reasoningbank_explainer(bundle: dict[str, Any], compare_root: Path) -
         <div class="section-label">How to read this page</div>
         <p class="baseline-intro">
           ReasoningBank has two separate loops: Step 1 / Step 2 / Step 3 are action turns, and the memory bank is updated only after the episode finishes.
-          The boxes below show where the input goes and what comes out at each point.
+          The boxes below show where the input goes and what comes out at each point, and the memory checkpoint cards show how the bank grows over time.
         </p>
         <div class="rb-explain-flow">
           {''.join(flow_cards)}
@@ -1341,14 +1386,25 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
     step_labels = [f"Step {idx}" for idx in range(1, len(step_dirs) + 1)]
     method_map = render_reasoningbank_method_map(bundle, compare_root)
     explainer = render_reasoningbank_explainer(bundle, compare_root)
-    memory_growth = render_reasoningbank_memory_growth(bundle, compare_root)
     task_snapshot = render_task_snapshot_panel(bundle, compare_root)
+    memory_items = reasoningbank_memory_items(bundle)
     result_json = read_text_or_placeholder(task_dir / "result.json")
     interact_messages = read_text_or_placeholder(task_dir / "interact_messages.json")
-    step_rows = "".join(
-        render_reasoningbank_step_row(bundle, compare_root, step_dir, step_label)
-        for step_dir, step_label in zip(step_dirs, step_labels)
-    )
+    step_blocks = []
+    cumulative_items: list[dict[str, str]] = []
+    for idx, (step_dir, step_label) in enumerate(zip(step_dirs, step_labels)):
+        step_blocks.append(render_reasoningbank_step_row(bundle, compare_root, step_dir, step_label))
+        if idx < len(memory_items):
+            cumulative_items.append(memory_items[idx])
+            step_blocks.append(
+                render_reasoningbank_memory_checkpoint(
+                    step_label=step_label,
+                    memory_item=memory_items[idx],
+                    bank_before_count=len(cumulative_items) - 1,
+                    cumulative_items=cumulative_items,
+                )
+            )
+    step_rows = "".join(step_blocks)
     task_name = bundle.get("task_name", "Task")
     task_text = str(bundle.get("payload", {}).get("task", ""))
     source_label_text = compact_source_label(bundle)
@@ -1393,11 +1449,9 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
 
     {explainer}
 
-    {memory_growth}
-
     <section class="reasoningbank-step-list">
       <div class="section-label">Step-by-step captures</div>
-      <p class="baseline-intro">각 스텝은 action turn의 input/output을 보여준다. 긴 prompt는 접어두고, step마다 LLM에 들어간 패킷과 나온 action을 먼저 본다. 메모리 추가는 아래 memory growth 섹션에서 따로 본다.</p>
+      <p class="baseline-intro">각 스텝은 action turn의 input/output을 보여준다. step 카드 바로 아래에 memory checkpoint를 붙여서, 어떤 lesson이 bank에 추가되고 다음 task에서 어떻게 다시 읽히는지 같이 본다.</p>
       <div class="stack">
         {step_rows}
       </div>
@@ -3008,6 +3062,92 @@ body {
   padding-top: 12px;
 }
 
+.rb-memory-checkpoint {
+  margin: 12px 0 18px;
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(248,250,252,0.98), rgba(255,255,255,0.95));
+  padding: 14px;
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.04);
+}
+
+.rb-memory-checkpoint-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.rb-memory-checkpoint-title {
+  margin-top: 4px;
+  font-size: 15px;
+  line-height: 1.35;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.rb-memory-checkpoint-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 10px;
+}
+
+.rb-memory-checkpoint-box {
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 16px;
+  background: white;
+  padding: 12px;
+}
+
+.rb-memory-checkpoint-box span {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 800;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.rb-memory-checkpoint-box strong {
+  display: block;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #0f172a;
+}
+
+.rb-memory-checkpoint-box p {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #1e293b;
+  overflow-wrap: anywhere;
+}
+
+.rb-memory-checkpoint-content {
+  color: var(--muted);
+}
+
+.rb-memory-checkpoint-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.rb-memory-checkpoint-list li {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #1e293b;
+  white-space: normal;
+}
+
+.rb-memory-checkpoint-list li.is-new b {
+  background: #d1fae5;
+  padding: 2px 6px;
+  border-radius: 999px;
+}
+
 .rb-bank-list {
   margin: 0;
   padding-left: 18px;
@@ -3452,6 +3592,7 @@ pre {
   .rb-explain-arrow { display: none; }
   .rb-step-panel-grid { grid-template-columns: 1fr; }
   .rb-step-memory-grid { grid-template-columns: 1fr; }
+  .rb-memory-checkpoint-grid { grid-template-columns: 1fr; }
   .rb-phase-grid { grid-template-columns: 1fr; }
   .rb-phase-io { grid-template-columns: 1fr; }
   .rb-schema-grid { grid-template-columns: 1fr; }
