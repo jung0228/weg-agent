@@ -924,6 +924,7 @@ def render_reasoningbank_memory_growth(bundle: dict[str, Any], compare_root: Pat
         return ""
 
     cumulative_items: list[dict[str, str]] = []
+    ribbon_items: list[str] = []
     cards: list[str] = []
     for idx, step_dir in enumerate(step_dirs, start=1):
         metadata_text = read_text_or_placeholder(step_dir / "metadata.json")
@@ -937,6 +938,7 @@ def render_reasoningbank_memory_growth(bundle: dict[str, Any], compare_root: Pat
         except Exception:
             llm_data = {}
 
+        bank_before_count = len(cumulative_items)
         candidate_id = str(metadata.get("candidate_id") or llm_data.get("id") or f"step-{idx}")
         memory_view = str(llm_data.get("memory_view") or metadata.get("memory_view") or "—")
         cumulative_items.append(
@@ -948,16 +950,29 @@ def render_reasoningbank_memory_growth(bundle: dict[str, Any], compare_root: Pat
                 "verification_rule": str(llm_data.get("verification_rule") or "—"),
             }
         )
-
-        bank_items = "".join(
+        bank_after_count = len(cumulative_items)
+        ribbon_items.append(
             f"""
-            <li>
-              <b>{esc(item["candidate_id"])}</b>
-              <span>{esc(item["memory_view"])}</span>
-            </li>
+            <div class="rb-bank-ribbon-item">
+              <div class="rb-bank-ribbon-step">Step {idx}</div>
+              <div class="rb-bank-ribbon-title">{esc(candidate_id)}</div>
+              <div class="rb-bank-ribbon-copy">{esc(memory_view)}</div>
+              <div class="rb-bank-ribbon-count">{bank_before_count} → {bank_after_count} items</div>
+            </div>
             """
-            for item in cumulative_items
         )
+
+        bank_items = []
+        for item in cumulative_items:
+            is_new = item["candidate_id"] == candidate_id
+            bank_items.append(
+                f"""
+                <li{ ' class="is-new"' if is_new else '' }>
+                  <b>{esc(item["candidate_id"])}</b>
+                  <span>{esc(item["memory_view"])}</span>
+                </li>
+                """
+            )
 
         cards.append(
             f"""
@@ -972,6 +987,20 @@ def render_reasoningbank_memory_growth(bundle: dict[str, Any], compare_root: Pat
               <div class="rb-bank-added">
                 <div class="rb-bank-added-label">New memory item</div>
                 <div class="rb-bank-added-value">{esc(memory_view)}</div>
+              </div>
+              <div class="rb-bank-delta">
+                <div>
+                  <span>Bank before</span>
+                  <b>{bank_before_count} items</b>
+                </div>
+                <div>
+                  <span>Bank after</span>
+                  <b>{bank_after_count} items</b>
+                </div>
+                <div>
+                  <span>Change</span>
+                  <b>+1 appended</b>
+                </div>
               </div>
               <div class="rb-bank-grid">
                 <div>
@@ -988,19 +1017,41 @@ def render_reasoningbank_memory_growth(bundle: dict[str, Any], compare_root: Pat
                 </div>
               </div>
               <div class="rb-bank-after">
-                <div class="rb-bank-after-label">Bank after step {idx}</div>
+                <div class="rb-bank-after-label">Bank after step {idx} · {bank_after_count} item(s)</div>
                 <ol class="rb-bank-list">
-                  {bank_items}
+                  {''.join(bank_items)}
                 </ol>
               </div>
             </article>
             """
         )
 
+    latest = cumulative_items[-1]
+    summary = f"""
+      <div class="rb-bank-summary">
+        <div class="rb-bank-summary-item">
+          <span>bank size</span>
+          <b>{len(cumulative_items)} items</b>
+        </div>
+        <div class="rb-bank-summary-item">
+          <span>latest candidate</span>
+          <b>{esc(latest["candidate_id"])}</b>
+        </div>
+        <div class="rb-bank-summary-item">
+          <span>latest memory</span>
+          <b>{esc(latest["memory_view"])}</b>
+        </div>
+      </div>
+      <div class="rb-bank-ribbon">
+        {''.join(ribbon_items)}
+      </div>
+    """
+
     return f"""
       <section class="reasoningbank-memory-growth">
         <div class="section-label">Memory bank growth</div>
         <p class="baseline-intro">ReasoningBank는 episode에서 추론 전략을 추출한 뒤 bank에 append한다. 아래는 이 task에서 쌓인 메모리를 step 순서대로 보여준다.</p>
+        {summary}
         <div class="stack">
           {''.join(cards)}
         </div>
@@ -1053,7 +1104,7 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
           <div class="metric" style="flex:1 1 100%">
             <div class="label">What this page shows</div>
             <div class="small" style="color:#e2e8f0;line-height:1.7">
-              왼쪽은 step마다 캡처한 이미지이고, 오른쪽은 GitHub prompt를 그대로 따른 원문 system/user prompt와 llm output이다.
+              step마다 memory item이 어떻게 추가되는지 보여주고, 긴 prompt는 접어서 필요할 때만 펼쳐보게 했다.
             </div>
           </div>
           <div class="metric" style="flex:1 1 100%">
@@ -1078,7 +1129,7 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
 
     <details style="margin-top:16px">
       <summary>Task snapshot / bundle raw files</summary>
-      <div class="task-section reasoningbank-single" style="margin-top:12px">
+      <div class="task-section reasoningbank-single reasoningbank-summary-stack" style="margin-top:12px">
         <div class="task-head">
           <div>
             <div class="section-label">Task snapshot</div>
@@ -1090,17 +1141,15 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
             {chip("raw prompts", "indigo")}
           </div>
         </div>
-        <div class="compare-layout reasoningbank-summary-layout">
-          {task_snapshot}
-          <div class="model-card reasoningbank-summary-card">
-            <div class="card-title">
-              <h3>Bundle raw files</h3>
-              <span class="meta">task-level</span>
-            </div>
-            <div class="stack-inner">
-              {render_raw_file_block("result.json", result_json)}
-              {render_raw_file_block("interact_messages.json", interact_messages)}
-            </div>
+        {task_snapshot}
+        <div class="model-card reasoningbank-summary-card">
+          <div class="card-title">
+            <h3>Bundle raw files</h3>
+            <span class="meta">task-level</span>
+          </div>
+          <div class="stack-inner">
+            {render_collapsible_raw_file_block("result.json", result_json)}
+            {render_collapsible_raw_file_block("interact_messages.json", interact_messages)}
           </div>
         </div>
       </div>
@@ -2224,6 +2273,84 @@ body {
   backdrop-filter: blur(12px);
 }
 
+.rb-bank-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.6fr;
+  gap: 10px;
+  margin: 12px 0 16px;
+}
+
+.rb-bank-summary-item {
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 12px 14px;
+}
+
+.rb-bank-summary-item span {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 800;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.rb-bank-summary-item b {
+  display: block;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #0f172a;
+  word-break: break-word;
+}
+
+.rb-bank-ribbon {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.rb-bank-ribbon-item {
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(255, 255, 255, 0.98));
+  padding: 12px;
+}
+
+.rb-bank-ribbon-step {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 900;
+  color: var(--muted);
+}
+
+.rb-bank-ribbon-title {
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.4;
+  color: #0f172a;
+  word-break: break-word;
+}
+
+.rb-bank-ribbon-copy {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #1e293b;
+  word-break: break-word;
+}
+
+.rb-bank-ribbon-count {
+  margin-top: 8px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #0f766e;
+}
+
 .rb-bank-card {
   border: 1px solid rgba(15, 23, 42, 0.10);
   border-radius: 20px;
@@ -2280,6 +2407,37 @@ body {
   color: #0f172a;
 }
 
+.rb-bank-delta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.rb-bank-delta > div {
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 16px;
+  background: rgba(248, 250, 252, 0.92);
+  padding: 10px 12px;
+}
+
+.rb-bank-delta span {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 800;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.rb-bank-delta b {
+  display: block;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #0f172a;
+}
+
 .rb-bank-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2331,6 +2489,15 @@ body {
   overflow-wrap: anywhere;
 }
 
+.rb-bank-list li.is-new {
+  padding: 8px 10px;
+  margin-left: -10px;
+  margin-right: -6px;
+  border-radius: 12px;
+  background: rgba(217, 249, 157, 0.26);
+  border: 1px solid rgba(132, 204, 22, 0.25);
+}
+
 .rb-bank-list b {
   color: #0f172a;
   display: inline-block;
@@ -2347,6 +2514,12 @@ body {
 
 .reasoningbank-summary-card {
   margin-top: 0;
+}
+
+.reasoningbank-summary-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .reasoningbank-step-list {
@@ -2737,6 +2910,9 @@ pre {
   .rb-step-media { position: static; }
   .rb-step-summary { grid-template-columns: 1fr; }
   .reasoningbank-page .reasoningbank-summary-layout { grid-template-columns: 1fr; }
+  .rb-bank-summary { grid-template-columns: 1fr; }
+  .rb-bank-ribbon { grid-template-columns: 1fr; }
+  .rb-bank-delta { grid-template-columns: 1fr; }
   .rb-phase-grid { grid-template-columns: 1fr; }
   .rb-phase-io { grid-template-columns: 1fr; }
   .rb-schema-grid { grid-template-columns: 1fr; }
