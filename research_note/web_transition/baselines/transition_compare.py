@@ -137,6 +137,23 @@ def read_text_or_placeholder(path: Path) -> str:
         return f"[missing: {path.name}]"
 
 
+def parse_json_text(text: str) -> Any:
+    try:
+        parsed = json.loads(text)
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, (dict, list)) else {}
+
+
+def join_preview(items: list[str], limit: int = 3) -> str:
+    cleaned = [item for item in (str(item).strip() for item in items) if item]
+    if not cleaned:
+        return "—"
+    if len(cleaned) <= limit:
+        return " · ".join(cleaned)
+    return " · ".join(cleaned[:limit]) + f" · +{len(cleaned) - limit} more"
+
+
 def render_raw_file_block(label: str, content: str) -> str:
     return f"""
       <div class="raw-file">
@@ -773,96 +790,148 @@ def render_reasoningbank_step_row(
     bundle: dict[str, Any],
     compare_root: Path,
     step_dir: Path,
-    phase_label: str,
-    memory_item: dict[str, str],
+    step_label: str,
 ) -> str:
     metadata_text = read_text_or_placeholder(step_dir / "metadata.json")
     llm_output = read_text_or_placeholder(step_dir / "llm_output.json")
     system_prompt = read_text_or_placeholder(step_dir / "system_prompt.txt")
     user_prompt = read_text_or_placeholder(step_dir / "user_prompt.txt")
     acc_tree = read_text_or_placeholder(step_dir / "acc_tree.txt")
-    try:
-        metadata = json.loads(metadata_text)
-    except Exception:
-        metadata = {}
+    metadata = parse_json_text(metadata_text)
+    user_payload = parse_json_text(user_prompt)
+    llm_payload = parse_json_text(llm_output)
     candidate_id = str(metadata.get("candidate_id") or "—")
-    memory_markdown = render_reasoningbank_memory_markdown([memory_item])
+    task_text = str(user_payload.get("task") or "—")
+    obs = user_payload.get("observation") if isinstance(user_payload.get("observation"), dict) else {}
+    visible_regions = obs.get("visible_regions", []) if isinstance(obs.get("visible_regions", []), list) else []
+    salient_elements = obs.get("salient_elements", []) if isinstance(obs.get("salient_elements", []), list) else []
+    candidate_actions = user_payload.get("candidate_actions", []) if isinstance(user_payload.get("candidate_actions", []), list) else []
+    retrieved_memory = user_payload.get("retrieved_transition_memory", []) if isinstance(user_payload.get("retrieved_transition_memory", []), list) else []
+
+    salient_preview = []
+    for element in salient_elements[:3]:
+        if not isinstance(element, dict):
+            continue
+        salient_preview.append(
+            f"{element.get('id', 'element')}: {element.get('text', '')} [{element.get('region', '')}]"
+        )
+
+    candidate_preview = []
+    for action in candidate_actions[:4]:
+        if not isinstance(action, dict):
+            continue
+        candidate_preview.append(
+            f"{action.get('id', 'candidate')} {action.get('surface', '')} → {action.get('target', '')}"
+        )
+
+    memory_preview = []
+    for memory in retrieved_memory[:3]:
+        if not isinstance(memory, dict):
+            continue
+        memory_preview.append(
+            f"{memory.get('action_affordance', 'memory')}: {memory.get('expected_transition', '')}"
+        )
+
+    candidate_evals = llm_payload.get("candidate_evaluations", []) if isinstance(llm_payload.get("candidate_evaluations", []), list) else []
+    eval_preview = []
+    for entry in candidate_evals[:4]:
+        if not isinstance(entry, dict):
+            continue
+        eval_preview.append(
+            f"{entry.get('id', 'candidate')}: {entry.get('memory_view', '')}"
+        )
+
     return f"""
       <article class="rb-step-row">
+        <div class="rb-step-topline">
+          <div>
+            <div class="raw-step-step">{esc(step_label)} · {esc(step_dir.name)}</div>
+            <div class="raw-step-title">Action turn</div>
+          </div>
+          <div class="meta">what the policy LLM reads and emits</div>
+        </div>
         <div class="rb-step-body">
-          <div class="raw-step-head">
-            <div>
-              <div class="raw-step-step">{esc(step_dir.name)} · {esc(phase_label)}</div>
-              <div class="raw-step-title">ReasoningBank memory item</div>
-            </div>
-            <div class="meta">paper format</div>
-          </div>
-          <div class="rb-step-summary">
-            <div class="rb-step-summary-item">
-              <span>Title</span>
-              <b>{esc(memory_item["title"])}</b>
-            </div>
-            <div class="rb-step-summary-item">
-              <span>Description</span>
-              <div>{esc(memory_item["description"])}</div>
-            </div>
-            <div class="rb-step-summary-item">
-              <span>Source cue</span>
-              <div>{esc(memory_item.get("source_signal", candidate_id))}</div>
-            </div>
-          </div>
-          <div class="rb-step-memory">
-            <div class="rb-step-memory-head">
-              <span class="rb-phase-kicker">Memory item</span>
-              <span class="meta">Title / Description / Content</span>
-            </div>
-            <div class="rb-step-memory-title">{esc(memory_item["title"])}</div>
-            <div class="rb-step-memory-grid">
-              <div>
-                <span>Description</span>
-                <p>{esc(memory_item["description"])}</p>
+          <div class="rb-step-note">This is the action-selection turn. Retrieved memory is part of the input, and the bank is only updated later after the episode finishes.</div>
+          <div class="rb-step-io-grid">
+            <section class="rb-step-panel">
+              <div class="rb-step-panel-head">
+                <span class="rb-phase-kicker">Input</span>
+                <span class="meta">what goes into the LLM</span>
               </div>
-              <div>
-                <span>Content</span>
-                <p>{esc(memory_item["content"])}</p>
+              <div class="rb-step-panel-title">{esc(task_text)}</div>
+              <div class="rb-step-panel-grid">
+                <div class="rb-step-field">
+                  <span>Observation</span>
+                  <div>page_type: {esc(str(obs.get("page_type") or "—"))}</div>
+                  <div>visible_regions: {esc(join_preview([str(x) for x in visible_regions]))}</div>
+                  <div>salient: {esc(join_preview(salient_preview, limit=3))}</div>
+                </div>
+                <div class="rb-step-field">
+                  <span>Candidate actions</span>
+                  <div>{esc(join_preview(candidate_preview, limit=4))}</div>
+                </div>
+                <div class="rb-step-field">
+                  <span>Retrieved memory</span>
+                  <div>{esc(join_preview(memory_preview, limit=3))}</div>
+                </div>
+                <div class="rb-step-field full">
+                  <span>Prompt packet</span>
+                  <div>system_prompt.txt + user_prompt.txt + metadata.json</div>
+                </div>
               </div>
-              <div>
-                <span>Raw markdown</span>
-                <p>{esc(first_line(memory_markdown, 120))}</p>
+            </section>
+            <div class="rb-step-arrow" aria-hidden="true">→</div>
+            <section class="rb-step-panel">
+              <div class="rb-step-panel-head">
+                <span class="rb-phase-kicker">Output</span>
+                <span class="meta">what comes out</span>
+              </div>
+              <div class="rb-step-panel-title">{esc(str(llm_payload.get("selected_action") or metadata.get("selected_action") or "—"))}</div>
+              <div class="rb-step-panel-grid">
+                <div class="rb-step-field">
+                  <span>Selected action</span>
+                  <div>{esc(str(llm_payload.get("selected_action") or metadata.get("selected_action") or "—"))}</div>
+                </div>
+                <div class="rb-step-field">
+                  <span>Selection reason</span>
+                  <div>{esc(str(llm_payload.get("selection_reason") or "—"))}</div>
+                </div>
+                <div class="rb-step-field">
+                  <span>Candidate evaluations</span>
+                  <div>{esc(join_preview(eval_preview, limit=3))}</div>
+                </div>
+                <div class="rb-step-field full">
+                  <span>Raw model output</span>
+                  <div>{esc(first_line(llm_output, 220))}</div>
+                </div>
+              </div>
+            </section>
+          </div>
+          <details style="margin-top:12px">
+            <summary>Raw files</summary>
+            <div class="raw-step-grid" style="margin-top:12px">
+              <div class="raw-step-column">
+                <div class="raw-section-label">Input</div>
+                {render_collapsible_raw_file_block("system_prompt.txt", system_prompt)}
+                {render_collapsible_raw_file_block("user_prompt.txt", user_prompt)}
+                {render_raw_file_block("metadata.json", metadata_text)}
+              </div>
+              <div class="raw-step-column">
+                <div class="raw-section-label">Output</div>
+                {render_collapsible_raw_file_block("llm_output.json", llm_output)}
+                <details class="raw-file raw-file-collapsible" open>
+                  <summary>
+                    <span class="raw-file-name">acc_tree.txt</span>
+                    <span class="raw-file-preview">{esc(first_line(acc_tree, 140))}</span>
+                  </summary>
+                  <pre>{esc(acc_tree)}</pre>
+                </details>
               </div>
             </div>
-          </div>
-          <div class="raw-step-grid">
-            <div class="raw-step-column">
-              <div class="raw-section-label">Input</div>
-              {render_collapsible_raw_file_block("system_prompt.txt", system_prompt)}
-              {render_collapsible_raw_file_block("user_prompt.txt", user_prompt)}
-              {render_raw_file_block("metadata.json", metadata_text)}
-            </div>
-            <div class="raw-step-column">
-              <div class="raw-section-label">Output</div>
-              {render_raw_file_block("memory_item.md", memory_markdown)}
-              <details class="raw-file raw-file-collapsible">
-                <summary>
-                  <span class="raw-file-name">llm_output.json</span>
-                  <span class="raw-file-preview">{esc(first_line(llm_output, 140))}</span>
-                </summary>
-                <pre>{esc(llm_output)}</pre>
-              </details>
-              {render_raw_file_block("acc_tree.txt", acc_tree)}
-            </div>
-          </div>
+          </details>
         </div>
       </article>
     """
-
-
-def reasoningbank_phase_labels(step_count: int) -> list[str]:
-    labels = ["Retrieval", "Extraction", "Consolidation"]
-    if step_count <= len(labels):
-        return labels[:step_count]
-    extra = [f"Stage {idx}" for idx in range(4, step_count + 1)]
-    return labels + extra
 
 
 def reasoningbank_memory_items(bundle: dict[str, Any]) -> list[dict[str, str]]:
@@ -1199,16 +1268,15 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
     if not step_dirs:
         return render_compare_page(compare_root, group_bundles([task_dir]))
 
-    phase_labels = reasoningbank_phase_labels(len(step_dirs))
-    memory_items = reasoningbank_memory_items(bundle)
+    step_labels = [f"Step {idx}" for idx in range(1, len(step_dirs) + 1)]
     method_map = render_reasoningbank_method_map(bundle, compare_root)
     memory_growth = render_reasoningbank_memory_growth(bundle, compare_root)
     task_snapshot = render_task_snapshot_panel(bundle, compare_root)
     result_json = read_text_or_placeholder(task_dir / "result.json")
     interact_messages = read_text_or_placeholder(task_dir / "interact_messages.json")
     step_rows = "".join(
-        render_reasoningbank_step_row(bundle, compare_root, step_dir, phase_label, memory_item)
-        for step_dir, phase_label, memory_item in zip(step_dirs, phase_labels, memory_items)
+        render_reasoningbank_step_row(bundle, compare_root, step_dir, step_label)
+        for step_dir, step_label in zip(step_dirs, step_labels)
     )
     task_name = bundle.get("task_name", "Task")
     task_text = str(bundle.get("payload", {}).get("task", ""))
@@ -1256,7 +1324,7 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
 
     <section class="reasoningbank-step-list">
       <div class="section-label">Step-by-step captures</div>
-      <p class="baseline-intro">각 스텝은 메모리가 어떻게 추가되는지에 초점을 맞춰 보여준다. 긴 prompt는 접어두고, step마다 새로 생긴 memory item과 bank 누적 결과를 먼저 본다.</p>
+      <p class="baseline-intro">각 스텝은 action turn의 input/output을 보여준다. 긴 prompt는 접어두고, step마다 LLM에 들어간 패킷과 나온 action을 먼저 본다. 메모리 추가는 아래 memory growth 섹션에서 따로 본다.</p>
       <div class="stack">
         {step_rows}
       </div>
@@ -2659,6 +2727,125 @@ body {
   color: #1e293b;
 }
 
+.rb-step-row {
+  margin-top: 18px;
+}
+
+.rb-step-topline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.rb-step-topline .raw-step-step {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.rb-step-topline .raw-step-title {
+  margin-top: 4px;
+  font-size: 17px;
+  line-height: 1.35;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.rb-step-note {
+  margin: 6px 0 12px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--muted);
+}
+
+.rb-step-io-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr);
+  gap: 12px;
+  margin-top: 12px;
+  align-items: stretch;
+}
+
+.rb-step-panel {
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.96));
+  padding: 14px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.04);
+}
+
+.rb-step-panel-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.rb-step-panel-title {
+  margin-top: 6px;
+  font-size: 15px;
+  line-height: 1.45;
+  font-weight: 900;
+  color: #0f172a;
+  overflow-wrap: anywhere;
+}
+
+.rb-step-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.rb-step-field {
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 16px;
+  background: white;
+  padding: 10px 12px;
+}
+
+.rb-step-field.full {
+  grid-column: 1 / -1;
+}
+
+.rb-step-field span {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 800;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.rb-step-field div,
+.rb-step-field p {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.rb-step-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 22px;
+  font-weight: 900;
+  opacity: 0.8;
+}
+
+.rb-step-field div {
+  font-size: 12px;
+  line-height: 1.55;
+  color: #1e293b;
+  word-break: break-word;
+}
+
 .rb-bank-after {
   margin-top: 12px;
   border-top: 1px dashed rgba(15, 23, 42, 0.12);
@@ -3103,6 +3290,10 @@ pre {
   .rb-bank-summary { grid-template-columns: 1fr; }
   .rb-bank-ribbon { grid-template-columns: 1fr; }
   .rb-bank-delta { grid-template-columns: 1fr; }
+  .rb-step-io-grid { grid-template-columns: 1fr; }
+  .rb-step-arrow { display: none; }
+  .rb-step-topline { flex-direction: column; }
+  .rb-step-panel-grid { grid-template-columns: 1fr; }
   .rb-step-memory-grid { grid-template-columns: 1fr; }
   .rb-phase-grid { grid-template-columns: 1fr; }
   .rb-phase-io { grid-template-columns: 1fr; }
