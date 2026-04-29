@@ -148,6 +148,20 @@ def render_raw_file_block(label: str, content: str) -> str:
     """
 
 
+def render_collapsible_raw_file_block(label: str, content: str, open_by_default: bool = False) -> str:
+    preview = first_line(content, 140) or "—"
+    open_attr = " open" if open_by_default else ""
+    return f"""
+      <details class="raw-file raw-file-collapsible"{open_attr}>
+        <summary>
+          <span class="raw-file-name">{esc(label)}</span>
+          <span class="raw-file-preview">{esc(preview)}</span>
+        </summary>
+        <pre>{esc(content or "—")}</pre>
+      </details>
+    """
+
+
 def render_baseline_output_strip(bundle: dict[str, Any]) -> str:
     task_dir = Path(bundle.get("task_dir", ""))
     result_json = read_text_or_placeholder(task_dir / "result.json")
@@ -744,6 +758,10 @@ def render_reasoningbank_step_row(
         metadata = json.loads(metadata_text)
     except Exception:
         metadata = {}
+    try:
+        llm_data = json.loads(llm_output)
+    except Exception:
+        llm_data = {}
     candidate_id = str(metadata.get("candidate_id") or "—")
     caption = f"{step_dir.name} · {candidate_id}"
     image_src = asset.get("src", "")
@@ -788,11 +806,32 @@ def render_reasoningbank_step_row(
               <div>{esc(str(metadata.get("memory_view") or "—"))}</div>
             </div>
           </div>
+          <div class="rb-step-memory">
+            <div class="rb-step-memory-head">
+              <span class="rb-phase-kicker">new memory item</span>
+              <span class="meta">append-only</span>
+            </div>
+            <div class="rb-step-memory-title">{esc(str(metadata.get("memory_view") or "—"))}</div>
+            <div class="rb-step-memory-grid">
+              <div>
+                <span>expected_transition</span>
+                <p>{esc(str(llm_data.get("expected_transition") or "—"))}</p>
+              </div>
+              <div>
+                <span>failure_signal</span>
+                <p>{esc(str(llm_data.get("failure_signal") or "—"))}</p>
+              </div>
+              <div>
+                <span>verification_rule</span>
+                <p>{esc(str(llm_data.get("verification_rule") or "—"))}</p>
+              </div>
+            </div>
+          </div>
           <div class="raw-step-grid">
             <div class="raw-step-column">
               <div class="raw-section-label">Input</div>
-              {render_raw_file_block("system_prompt.txt", system_prompt)}
-              {render_raw_file_block("user_prompt.txt", user_prompt)}
+              {render_collapsible_raw_file_block("system_prompt.txt", system_prompt)}
+              {render_collapsible_raw_file_block("user_prompt.txt", user_prompt)}
               {render_raw_file_block("metadata.json", metadata_text)}
             </div>
             <div class="raw-step-column">
@@ -905,6 +944,97 @@ def render_reasoningbank_method_map(bundle: dict[str, Any], compare_root: Path) 
     """
 
 
+def render_reasoningbank_memory_growth(bundle: dict[str, Any], compare_root: Path) -> str:
+    task_dir = Path(bundle.get("task_dir", ""))
+    step_dirs = discover_step_dirs(task_dir)
+    if not step_dirs:
+        return ""
+
+    cumulative_items: list[dict[str, str]] = []
+    cards: list[str] = []
+    for idx, step_dir in enumerate(step_dirs, start=1):
+        metadata_text = read_text_or_placeholder(step_dir / "metadata.json")
+        llm_text = read_text_or_placeholder(step_dir / "llm_output.json")
+        try:
+            metadata = json.loads(metadata_text)
+        except Exception:
+            metadata = {}
+        try:
+            llm_data = json.loads(llm_text)
+        except Exception:
+            llm_data = {}
+
+        candidate_id = str(metadata.get("candidate_id") or llm_data.get("id") or f"step-{idx}")
+        memory_view = str(llm_data.get("memory_view") or metadata.get("memory_view") or "—")
+        cumulative_items.append(
+            {
+                "candidate_id": candidate_id,
+                "memory_view": memory_view,
+                "expected_transition": str(llm_data.get("expected_transition") or "—"),
+                "failure_signal": str(llm_data.get("failure_signal") or "—"),
+                "verification_rule": str(llm_data.get("verification_rule") or "—"),
+            }
+        )
+
+        bank_items = "".join(
+            f"""
+            <li>
+              <b>{esc(item["candidate_id"])}</b>
+              <span>{esc(first_line(item["memory_view"], 96))}</span>
+            </li>
+            """
+            for item in cumulative_items
+        )
+
+        cards.append(
+            f"""
+            <article class="rb-bank-card">
+              <div class="rb-bank-head">
+                <div>
+                  <div class="rb-bank-step">Step {idx}</div>
+                  <div class="rb-bank-title">{esc(candidate_id)} · {esc(first_line(memory_view, 70))}</div>
+                </div>
+                {chip("append", "teal")}
+              </div>
+              <div class="rb-bank-added">
+                <div class="rb-bank-added-label">New memory item</div>
+                <div class="rb-bank-added-value">{esc(memory_view)}</div>
+              </div>
+              <div class="rb-bank-grid">
+                <div>
+                  <span>expected_transition</span>
+                  <p>{esc(cumulative_items[-1]["expected_transition"])}</p>
+                </div>
+                <div>
+                  <span>failure_signal</span>
+                  <p>{esc(cumulative_items[-1]["failure_signal"])}</p>
+                </div>
+                <div>
+                  <span>verification_rule</span>
+                  <p>{esc(cumulative_items[-1]["verification_rule"])}</p>
+                </div>
+              </div>
+              <div class="rb-bank-after">
+                <div class="rb-bank-after-label">Bank after step {idx}</div>
+                <ol class="rb-bank-list">
+                  {bank_items}
+                </ol>
+              </div>
+            </article>
+            """
+        )
+
+    return f"""
+      <section class="reasoningbank-memory-growth">
+        <div class="section-label">Memory bank growth</div>
+        <p class="baseline-intro">ReasoningBank는 episode에서 추론 전략을 추출한 뒤 bank에 append한다. 아래는 이 task에서 쌓인 메모리를 step 순서대로 보여준다.</p>
+        <div class="stack">
+          {''.join(cards)}
+        </div>
+      </section>
+    """
+
+
 def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str:
     task_dir = Path(bundle.get("task_dir", ""))
     step_dirs = discover_step_dirs(task_dir)
@@ -914,6 +1044,7 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
     step_assets = [ensure_reasoningbank_step_asset(bundle, compare_root, step_dir) for step_dir in step_dirs]
     phase_labels = reasoningbank_phase_labels(len(step_dirs))
     method_map = render_reasoningbank_method_map(bundle, compare_root)
+    memory_growth = render_reasoningbank_memory_growth(bundle, compare_root)
     task_snapshot = render_task_snapshot_panel(bundle, compare_root)
     result_json = read_text_or_placeholder(task_dir / "result.json")
     interact_messages = read_text_or_placeholder(task_dir / "interact_messages.json")
@@ -962,6 +1093,8 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
     </header>
 
     {method_map}
+
+    {memory_growth}
 
     <section class="reasoningbank-step-list">
       <div class="section-label">Step-by-step captures</div>
@@ -2078,6 +2211,154 @@ body {
   border: 0;
 }
 
+.raw-file-collapsible {
+  margin-top: 0;
+  padding: 0;
+}
+
+.raw-file-collapsible summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+}
+
+.raw-file-collapsible summary::-webkit-details-marker {
+  display: none;
+}
+
+.raw-file-preview {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reasoningbank-memory-growth {
+  margin-top: 16px;
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  padding: 18px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(12px);
+}
+
+.rb-bank-card {
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 14px;
+}
+
+.rb-bank-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.rb-bank-step {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 900;
+  color: var(--muted);
+}
+
+.rb-bank-title {
+  margin-top: 4px;
+  font-size: 15px;
+  line-height: 1.35;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.rb-bank-added {
+  margin-top: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 18px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.rb-bank-added-label,
+.rb-bank-after-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 800;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.rb-bank-added-value {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #0f172a;
+}
+
+.rb-bank-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.rb-bank-grid > div {
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 16px;
+  background: white;
+  padding: 10px 12px;
+}
+
+.rb-bank-grid span {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 800;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.rb-bank-grid p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #1e293b;
+}
+
+.rb-bank-after {
+  margin-top: 12px;
+  border-top: 1px dashed rgba(15, 23, 42, 0.12);
+  padding-top: 12px;
+}
+
+.rb-bank-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.rb-bank-list li {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #1e293b;
+}
+
+.rb-bank-list b {
+  color: #0f172a;
+}
+
 .reasoningbank-page .reasoningbank-summary-layout {
   grid-template-columns: minmax(440px, 0.98fr) minmax(320px, 0.72fr);
 }
@@ -2460,6 +2741,9 @@ pre {
   .rb-phase-grid { grid-template-columns: 1fr; }
   .rb-phase-io { grid-template-columns: 1fr; }
   .rb-schema-grid { grid-template-columns: 1fr; }
+  .rb-bank-grid { grid-template-columns: 1fr; }
+  .raw-file-collapsible summary { flex-direction: column; align-items: flex-start; }
+  .raw-file-preview { text-align: left; white-space: normal; }
 }
 """
 
