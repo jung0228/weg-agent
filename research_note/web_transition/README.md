@@ -130,7 +130,7 @@ python3 research_note/web_transition/baselines/transition_viewer.py eval_results
 python3 research_note/web_transition/baselines/transition_compare.py eval_results
 ```
 
-이 명령은 `task_name`이 같은 결과들을 자동으로 묶어서, shared input은 한 번만 보여주고 model별 step output을 나란히 보여주는 `comparison_viewer.html`을 만든다.
+이 명령은 `task_name`이 같은 결과들을 자동으로 묶어서, shared input은 한 번만 보여주고 model별 step output을 나란히 보여주는 `comparison_viewer.html`을 만든다. 상단에는 `Synapse / AWM / ReasoningBank / WMA / WebDreamer / RAP / Ours` baseline shelf도 같이 보여서, 결과와 baseline 정의를 한 화면에서 같이 볼 수 있다.
 
 baseline 비교를 한 번에 보고 싶으면:
 

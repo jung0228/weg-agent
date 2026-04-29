@@ -20,10 +20,10 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
+from baseline_profiles import BASELINE_PROFILES
 from transition_viewer import (
     CSS,
     chip,
-    chips,
     discover_task_dirs,
     esc,
     first_line,
@@ -33,6 +33,18 @@ from transition_viewer import (
     render_observation,
     render_step_cards,
 )
+
+FAMILY_LABELS = {
+    "memory": "Memory",
+    "world_model": "World model",
+    "transition_memory": "Ours",
+}
+
+FAMILY_TONES = {
+    "memory": "gray",
+    "world_model": "indigo",
+    "transition_memory": "teal",
+}
 
 
 def load_bundles_from_path(path: Path) -> list[dict[str, Any]]:
@@ -102,6 +114,66 @@ def render_shared_input(bundle: dict[str, Any]) -> str:
             <span class="meta">{len(payload.get("retrieved_transition_memory", []) or [])} items</span>
           </div>
           {render_memory_cards(payload)}
+        </div>
+      </section>
+    """
+
+
+def render_baseline_shelf() -> str:
+    family_order = ["memory", "world_model", "transition_memory"]
+    family_sections = []
+    for family in family_order:
+        items = [
+            (name, profile)
+            for name, profile in BASELINE_PROFILES.items()
+            if profile.get("family") == family
+        ]
+        if not items:
+            continue
+
+        cards = []
+        for name, profile in items:
+            tone = FAMILY_TONES.get(family, "gray")
+            cards.append(
+                f"""
+                <article class="baseline-card">
+                  <div class="baseline-card-top">
+                    <div>
+                      <div class="baseline-name">{esc(profile.get("display_name", name))}</div>
+                      <div class="baseline-key">{esc(name)}</div>
+                    </div>
+                    {chip(FAMILY_LABELS.get(family, family), tone)}
+                  </div>
+                  <div class="baseline-row">
+                    <span>Stored unit</span>
+                    <b>{esc(profile.get("stored_unit", ""))}</b>
+                  </div>
+                  <div class="baseline-note">{esc(profile.get("memory_view_instruction", ""))}</div>
+                  <div class="baseline-post">{esc(profile.get("post_update", ""))}</div>
+                </article>
+                """
+            )
+
+        family_sections.append(
+            f"""
+            <section class="family-block">
+              <div class="family-head">
+                <h3>{esc(FAMILY_LABELS.get(family, family))}</h3>
+                <span class="meta">{len(items)} baselines</span>
+              </div>
+              <div class="baseline-grid">
+                {''.join(cards)}
+              </div>
+            </section>
+            """
+        )
+
+    return f"""
+      <section class="baseline-shelf">
+        <div class="section-label">Baseline Shelf</div>
+        <p class="baseline-intro">Memory / world-model / Ours를 한 화면에서 같이 본다. 아직 결과가 없어도 baseline 정의는 항상 보인다.</p>
+        <div class="stack">
+          {''.join(family_sections)}
         </div>
       </section>
     """
@@ -240,6 +312,8 @@ def render_compare_page(compare_root: Path, groups: list[dict[str, Any]]) -> str
       </div>
     </header>
 
+    {render_baseline_shelf()}
+
     <nav class="nav">
       {nav_links}
     </nav>
@@ -349,6 +423,108 @@ body {
   letter-spacing: 0.12em;
   color: rgba(255, 255, 255, 0.76);
   margin-top: 4px;
+}
+
+.baseline-shelf {
+  margin-top: 18px;
+  background: rgba(255, 255, 255, 0.70);
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  padding: 18px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(12px);
+}
+
+.baseline-intro {
+  margin: 0 0 14px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.family-block + .family-block {
+  margin-top: 16px;
+}
+
+.family-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.family-head h3 {
+  margin: 0;
+  font-size: 16px;
+  letter-spacing: -0.02em;
+}
+
+.baseline-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+}
+
+.baseline-card {
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 14px;
+}
+
+.baseline-card-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.baseline-name {
+  font-weight: 900;
+  font-size: 16px;
+  line-height: 1.1;
+}
+
+.baseline-key {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.baseline-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12px;
+  margin: 8px 0;
+  color: #334155;
+}
+
+.baseline-row span {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.11em;
+  font-size: 11px;
+}
+
+.baseline-note {
+  font-size: 13px;
+  line-height: 1.55;
+  color: #1e293b;
+  min-height: 3.1em;
+}
+
+.baseline-post {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(15, 23, 42, 0.12);
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
 }
 
 .stack {
