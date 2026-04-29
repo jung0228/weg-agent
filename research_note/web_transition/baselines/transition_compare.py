@@ -134,6 +134,23 @@ def render_baseline_shelf() -> str:
         cards = []
         for name, profile in items:
             tone = FAMILY_TONES.get(family, "gray")
+            pipeline_items = profile.get("pipeline", []) or []
+            pipeline_cards = []
+            for step_index, step in enumerate(pipeline_items, start=1):
+                pipeline_cards.append(
+                    f"""
+                    <div class="pipeline-step">
+                      <div class="pipeline-step-head">
+                        <span class="pipeline-index">Stage {step_index}</span>
+                        <span class="pipeline-name">{esc(step.get("name", ""))}</span>
+                      </div>
+                      <div class="pipeline-io">
+                        <div><span>Input</span><p>{esc(step.get("input", ""))}</p></div>
+                        <div><span>Output</span><p>{esc(step.get("output", ""))}</p></div>
+                      </div>
+                    </div>
+                    """
+                )
             cards.append(
                 f"""
                 <article class="baseline-card">
@@ -150,6 +167,12 @@ def render_baseline_shelf() -> str:
                   </div>
                   <div class="baseline-note">{esc(profile.get("memory_view_instruction", ""))}</div>
                   <div class="baseline-post">{esc(profile.get("post_update", ""))}</div>
+                  <div class="pipeline-block">
+                    <div class="pipeline-label">Intermediate IO</div>
+                    <div class="pipeline-stack">
+                      {''.join(pipeline_cards)}
+                    </div>
+                  </div>
                 </article>
                 """
             )
@@ -527,6 +550,79 @@ body {
   line-height: 1.5;
 }
 
+.pipeline-block {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.pipeline-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-weight: 800;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.pipeline-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pipeline-step {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.82);
+  padding: 12px;
+}
+
+.pipeline-step-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.pipeline-index {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.pipeline-name {
+  font-weight: 900;
+  font-size: 14px;
+  color: #0f172a;
+}
+
+.pipeline-io {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.pipeline-io span {
+  display: inline-block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 800;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.pipeline-io p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #1e293b;
+}
+
 .stack {
   display: flex;
   flex-direction: column;
@@ -727,6 +823,7 @@ pre {
   .compare-layout { grid-template-columns: 1fr; }
   .hero { flex-direction: column; }
   .model-strip { grid-auto-flow: row; grid-auto-columns: 1fr; }
+  .pipeline-io { grid-template-columns: 1fr; }
 }
 """
 
