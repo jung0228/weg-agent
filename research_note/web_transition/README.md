@@ -52,6 +52,7 @@ research_note/web_transition/
   baselines/
     api_transition_demo.py
     baseline_profiles.py
+    transition_compare.py
     letsur_transition_demo.py
     local_transition_dry_run.py
     package_transition_results.py
@@ -122,6 +123,14 @@ python3 research_note/web_transition/baselines/transition_viewer.py eval_results
 ```
 
 이 명령은 각 task의 `viz_io.html`를 step-by-step 대시보드로 다시 만들고, run 루트에 `transition_viewer.html` 인덱스를 생성한다.
+
+여러 run이나 모델 결과를 같은 task 기준으로 옆에 비교하려면:
+
+```bash
+python3 research_note/web_transition/baselines/transition_compare.py eval_results
+```
+
+이 명령은 `task_name`이 같은 결과들을 자동으로 묶어서, shared input은 한 번만 보여주고 model별 step output을 나란히 보여주는 `comparison_viewer.html`을 만든다.
 
 baseline 비교를 한 번에 보고 싶으면:
 
