@@ -93,13 +93,11 @@ web transition 연구 자체는 `research_note/web_transition/`를 기준점으�
 | WMA | text world-model prediction | `imagined_next_observation` | 8B / 24GB class |
 | WebDreamer | multimodal web world model | `imagined_page_change` | 7B / 24GB class |
 | RAP | planning + imagined rollout | `imagined_rollout` | 33B / 4x24GB official |
-| Ours | transition memory | `transition_memory` | no |
 
 ## 왜 이 조합인가
 
 - Memory 3개는 `trajectory / workflow / lesson`을 각각 커버한다.
 - WMA와 RAP는 `next state / rollout` 쪽을 커버한다.
-- Ours는 `expected_transition / failure_signal / verification_rule`을 직접 저장한다.
 
 ## 실행 예시
 
@@ -130,12 +128,12 @@ python3 research_note/web_transition/baselines/transition_viewer.py eval_results
 python3 research_note/web_transition/baselines/transition_compare.py eval_results
 ```
 
-이 명령은 `task_name`이 같은 결과들을 자동으로 묶어서, shared input은 한 번만 보여주고 model별 step output을 나란히 보여주는 `comparison_viewer.html`을 만든다. 상단에는 `Synapse / AWM / ReasoningBank / WMA / WebDreamer / RAP / Ours` baseline shelf도 같이 보여서, 결과와 baseline 정의, 그리고 각 baseline의 intermediate IO stage까지 한 화면에서 같이 볼 수 있다.
+이 명령은 `task_name`이 같은 결과들을 자동으로 묶어서, 왼쪽에는 task preview를, 오른쪽에는 model별 step output을 나란히 보여주는 `comparison_viewer.html`을 만든다. 상단에는 `Synapse / AWM / ReasoningBank / WMA / WebDreamer / RAP` baseline shelf도 같이 보여서, 결과와 baseline 정의, 그리고 각 baseline의 intermediate IO stage까지 한 화면에서 같이 볼 수 있다.
 
 baseline 비교를 한 번에 보고 싶으면:
 
 ```bash
-for b in synapse awm reasoningbank wma webdreamer rap ours; do
+for b in synapse awm reasoningbank wma webdreamer rap; do
   python3 research_note/web_transition/baselines/letsur_transition_demo.py flight --baseline "$b"
 done
 ```
@@ -150,6 +148,6 @@ done
 
 ## 내일까지의 핵심
 
-같은 입력에 대해 `Synapse / AWM / ReasoningBank / WMA / WebDreamer / RAP / Ours`가
+같은 입력에 대해 `Synapse / AWM / ReasoningBank / WMA / WebDreamer / RAP`이
 무엇을 저장하고 무엇을 출력하는지 `memory_view / expected_transition / failure_signal / verification_rule`
 슬롯으로 보여주는 것이다.

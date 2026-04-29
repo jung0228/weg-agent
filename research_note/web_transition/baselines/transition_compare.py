@@ -37,13 +37,11 @@ from transition_viewer import (
 FAMILY_LABELS = {
     "memory": "Memory",
     "world_model": "World model",
-    "transition_memory": "Ours",
 }
 
 FAMILY_TONES = {
     "memory": "gray",
     "world_model": "indigo",
-    "transition_memory": "teal",
 }
 
 
@@ -93,34 +91,113 @@ def group_bundles(paths: list[Path]) -> list[dict[str, Any]]:
     return list(groups.values())
 
 
-def render_shared_input(bundle: dict[str, Any]) -> str:
+def render_task_preview(bundle: dict[str, Any]) -> str:
     payload = bundle.get("payload", {})
+    observation = payload.get("observation", {})
+    if not isinstance(observation, dict):
+        observation = {}
+    visible_regions = observation.get("visible_regions", [])
+    if not isinstance(visible_regions, list):
+        visible_regions = []
+    salient_elements = observation.get("salient_elements", [])
+    if not isinstance(salient_elements, list):
+        salient_elements = []
+    candidate_actions = payload.get("candidate_actions", [])
+    if not isinstance(candidate_actions, list):
+        candidate_actions = []
+
+    visible_pills = "".join(chip(region, "indigo") for region in visible_regions) or '<div class="small">-</div>'
+    action_cards = []
+    for action in candidate_actions:
+        if not isinstance(action, dict):
+            continue
+        action_cards.append(
+            f"""
+            <div class="preview-action-pill">
+              <b>{esc(action.get("id", ""))}</b>
+              <span>{esc(action.get("surface", ""))}</span>
+            </div>
+            """
+        )
+
+    element_cards = []
+    for index, element in enumerate(salient_elements, start=1):
+        if not isinstance(element, dict):
+            continue
+        element_cards.append(
+            f"""
+            <div class="preview-element">
+              <div class="preview-element-head">
+                <span class="preview-element-id">{esc(element.get("id", f"e{index}"))}</span>
+                <span class="preview-element-role">{esc(element.get("role", ""))}</span>
+              </div>
+              <div class="preview-element-text">{esc(element.get("text", ""))}</div>
+              <div class="preview-element-meta">
+                <span>{esc(element.get("region", ""))}</span>
+                <span>{esc(element.get("context", ""))}</span>
+              </div>
+            </div>
+            """
+        )
+
     return f"""
-      <section class="panel shared-input">
-        <div class="section-label">Shared Input</div>
-        {render_observation(payload)}
-        <div style="height:12px"></div>
-        <div class="card">
-          <div class="card-title">
-            <h3>Candidate Actions</h3>
-            <span class="meta">{len(payload.get("candidate_actions", []) or [])} actions</span>
+      <section class="panel preview-panel">
+        <div class="section-label">Task Image</div>
+        <div class="preview-shell">
+          <div class="preview-topbar">
+            <div class="preview-dots"><span></span><span></span><span></span></div>
+            <div class="preview-address">{esc(observation.get("page_type", "page"))} · {esc(bundle.get("task_name", "Task"))}</div>
           </div>
-          {render_candidate_cards(payload)}
-        </div>
-        <div style="height:12px"></div>
-        <div class="card">
-          <div class="card-title">
-            <h3>Retrieved Transition Memory</h3>
-            <span class="meta">{len(payload.get("retrieved_transition_memory", []) or [])} items</span>
+          <div class="preview-body">
+            <aside class="preview-sidebar">
+              <div class="preview-sidebar-title">Visible regions</div>
+              <div class="chips preview-chips">{visible_pills}</div>
+              <div class="preview-sidebar-title" style="margin-top:14px">Task</div>
+              <div class="preview-task">{esc(payload.get("task", ""))}</div>
+              <div class="preview-sidebar-title" style="margin-top:14px">Actions</div>
+              <div class="preview-action-stack">
+                {''.join(action_cards) or '<div class="small">No candidate actions.</div>'}
+              </div>
+            </aside>
+            <main class="preview-main">
+              <div class="preview-main-head">
+                <div class="preview-main-kicker">Observation</div>
+                <div class="preview-main-title">{esc(observation.get("page_type", "—"))}</div>
+              </div>
+              <div class="preview-element-grid">
+                {''.join(element_cards) or '<div class="small">No salient elements.</div>'}
+              </div>
+            </main>
           </div>
-          {render_memory_cards(payload)}
         </div>
+        <details open>
+          <summary>Raw observation / memory</summary>
+          <div class="raw-preview">
+            {render_observation(payload)}
+            <div style="height:12px"></div>
+            <div class="card">
+              <div class="card-title">
+                <h3>Retrieved Transition Memory</h3>
+                <span class="meta">{len(payload.get("retrieved_transition_memory", []) or [])} items</span>
+              </div>
+              {render_memory_cards(payload)}
+            </div>
+            <div style="height:12px"></div>
+            <div class="card">
+              <div class="card-title">
+                <h3>Candidate Actions</h3>
+                <span class="meta">{len(candidate_actions)} actions</span>
+              </div>
+              {render_candidate_cards(payload)}
+            </div>
+          </div>
+        </details>
       </section>
     """
 
 
 def render_baseline_shelf() -> str:
-    family_order = ["memory", "world_model", "transition_memory"]
+    family_order = ["memory", "world_model"]
     family_sections = []
     for family in family_order:
         items = [
@@ -194,7 +271,7 @@ def render_baseline_shelf() -> str:
     return f"""
       <section class="baseline-shelf">
         <div class="section-label">Baseline Shelf</div>
-        <p class="baseline-intro">Memory / world-model / Ours를 한 화면에서 같이 본다. 아직 결과가 없어도 baseline 정의는 항상 보인다.</p>
+        <p class="baseline-intro">Memory / world-model baselines를 한 화면에서 같이 본다. 아직 결과가 없어도 baseline 정의는 항상 보인다.</p>
         <div class="stack">
           {''.join(family_sections)}
         </div>
@@ -251,7 +328,7 @@ def render_task_section(group: dict[str, Any], compare_root: Path) -> str:
         return ""
     bundles = sorted(bundles, key=lambda b: (b.get("source_order", 0), b.get("source_label", "")))
     shared_bundle = bundles[0]
-    input_panel = render_shared_input(shared_bundle)
+    input_panel = render_task_preview(shared_bundle)
     model_cards = "".join(render_model_card(bundle, compare_root) for bundle in bundles)
     source_labels = sorted({str(bundle.get("source_label", "")) for bundle in bundles if bundle.get("source_label")})
     return f"""
@@ -679,6 +756,192 @@ body {
   gap: 16px;
   margin-top: 16px;
   align-items: start;
+}
+
+.preview-panel {
+  align-self: start;
+}
+
+.preview-shell {
+  overflow: hidden;
+  border-radius: 24px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.75);
+}
+
+.preview-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: #0f172a;
+  color: #cbd5e1;
+}
+
+.preview-dots {
+  display: flex;
+  gap: 6px;
+}
+
+.preview-dots span {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  display: inline-block;
+  background: #475569;
+}
+
+.preview-dots span:first-child { background: #ef4444; }
+.preview-dots span:nth-child(2) { background: #f59e0b; }
+.preview-dots span:nth-child(3) { background: #22c55e; }
+
+.preview-address {
+  flex: 1;
+  text-align: right;
+  font-size: 11px;
+  color: #93c5fd;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview-body {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 0;
+  min-height: 530px;
+}
+
+.preview-sidebar {
+  padding: 14px;
+  background: #e2e8f0;
+  border-right: 1px solid rgba(15, 23, 42, 0.10);
+}
+
+.preview-sidebar-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 900;
+  color: #64748b;
+  margin-bottom: 8px;
+}
+
+.preview-chips {
+  margin-bottom: 0;
+}
+
+.preview-task {
+  font-size: 13px;
+  line-height: 1.65;
+  color: #1e293b;
+}
+
+.preview-action-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.preview-action-pill {
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+
+.preview-action-pill b {
+  display: block;
+  font-size: 13px;
+  color: #0f172a;
+  margin-bottom: 2px;
+}
+
+.preview-action-pill span {
+  display: block;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.preview-main {
+  padding: 16px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
+
+.preview-main-head {
+  margin-bottom: 12px;
+}
+
+.preview-main-kicker {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 10px;
+  font-weight: 900;
+  color: var(--muted);
+}
+
+.preview-main-title {
+  margin-top: 4px;
+  font-size: 17px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: #0f172a;
+}
+
+.preview-element-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.preview-element {
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.05);
+  padding: 12px;
+  min-height: 120px;
+}
+
+.preview-element-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.preview-element-id {
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.preview-element-role {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  font-weight: 800;
+  color: #64748b;
+}
+
+.preview-element-text {
+  font-size: 13px;
+  line-height: 1.55;
+  color: #0f172a;
+}
+
+.preview-element-meta {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.raw-preview {
+  margin-top: 10px;
 }
 
 .model-strip {
