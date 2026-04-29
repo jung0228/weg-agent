@@ -2559,6 +2559,23 @@ body {
   word-break: break-word;
 }
 
+.reasoningbank-page .raw-step-grid {
+  grid-template-columns: 1fr;
+}
+
+.reasoningbank-page .raw-step-column {
+  min-width: 0;
+}
+
+.reasoningbank-page .raw-step-column + .raw-step-column {
+  margin-top: 8px;
+}
+
+.reasoningbank-page .raw-file,
+.reasoningbank-page .raw-file-collapsible {
+  min-width: 0;
+}
+
 .step-snapshot-sheet {
   width: 100%;
 }
