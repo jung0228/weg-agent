@@ -1125,6 +1125,76 @@ def render_reasoningbank_method_map(bundle: dict[str, Any], compare_root: Path) 
     """
 
 
+def render_reasoningbank_explainer(bundle: dict[str, Any], compare_root: Path) -> str:
+    memory_items = reasoningbank_memory_items(bundle)
+    exemplar = memory_items[0] if memory_items else {
+        "title": "Memory item",
+        "description": "A reusable lesson from the episode.",
+        "content": "A consolidated lesson that can be reused on the next task.",
+    }
+
+    cards = [
+        (
+            "Loop 1",
+            "Action turn",
+            "task + current observation + retrieved memory",
+            "selected action + reasoning",
+            "This is what Step 1 / Step 2 / Step 3 show. The bank is only read here, not updated.",
+        ),
+        (
+            "Loop 2",
+            "Memory extraction",
+            "full trajectory + result.json + llm_output.json + acc_tree.txt",
+            "Title / Description / Content memory item",
+            "This happens after the episode finishes and turns the episode into a reusable lesson.",
+        ),
+        (
+            "Loop 3",
+            "Consolidation",
+            "new memory item",
+            "bank appended for the next task",
+            f"{exemplar['title']} · {exemplar['description']}",
+        ),
+    ]
+
+    flow_cards = []
+    for label, title, input_text, output_text, note in cards:
+        flow_cards.append(
+            f"""
+            <div class="rb-explain-card">
+              <div class="rb-explain-head">
+                <span class="rb-phase-kicker">{esc(label)}</span>
+                <strong>{esc(title)}</strong>
+              </div>
+              <div class="rb-explain-io">
+                <div>
+                  <span>Input</span>
+                  <p>{esc(input_text)}</p>
+                </div>
+                <div>
+                  <span>Output</span>
+                  <p>{esc(output_text)}</p>
+                </div>
+              </div>
+              <div class="rb-explain-note">{esc(note)}</div>
+            </div>
+            """
+        )
+
+    return f"""
+      <section class="reasoningbank-explainer">
+        <div class="section-label">How to read this page</div>
+        <p class="baseline-intro">
+          ReasoningBank has two separate loops: Step 1 / Step 2 / Step 3 are action turns, and the memory bank is updated only after the episode finishes.
+          The boxes below show where the input goes and what comes out at each point.
+        </p>
+        <div class="rb-explain-flow">
+          {''.join(flow_cards)}
+        </div>
+      </section>
+    """
+
+
 def render_reasoningbank_memory_growth(bundle: dict[str, Any], compare_root: Path) -> str:
     task_dir = Path(bundle.get("task_dir", ""))
     step_dirs = discover_step_dirs(task_dir)
@@ -1270,6 +1340,7 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
 
     step_labels = [f"Step {idx}" for idx in range(1, len(step_dirs) + 1)]
     method_map = render_reasoningbank_method_map(bundle, compare_root)
+    explainer = render_reasoningbank_explainer(bundle, compare_root)
     memory_growth = render_reasoningbank_memory_growth(bundle, compare_root)
     task_snapshot = render_task_snapshot_panel(bundle, compare_root)
     result_json = read_text_or_placeholder(task_dir / "result.json")
@@ -1319,6 +1390,8 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
     </header>
 
     {method_map}
+
+    {explainer}
 
     {memory_growth}
 
@@ -2727,6 +2800,89 @@ body {
   color: #1e293b;
 }
 
+.reasoningbank-explainer {
+  margin-top: 18px;
+}
+
+.rb-explain-flow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr) 28px minmax(0, 1fr);
+  gap: 10px;
+  align-items: stretch;
+  margin-top: 14px;
+}
+
+.rb-explain-card {
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.99), rgba(248,250,252,0.94));
+  padding: 14px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.04);
+}
+
+.rb-explain-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.rb-explain-head strong {
+  font-size: 15px;
+  line-height: 1.35;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.rb-explain-io {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.rb-explain-io > div {
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 16px;
+  background: white;
+  padding: 10px 12px;
+}
+
+.rb-explain-io span {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 800;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.rb-explain-io p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #0f172a;
+  overflow-wrap: anywhere;
+}
+
+.rb-explain-note {
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.rb-explain-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 900;
+  color: var(--muted);
+  opacity: 0.75;
+}
+
 .rb-step-row {
   margin-top: 18px;
 }
@@ -3293,6 +3449,8 @@ pre {
   .rb-step-io-grid { grid-template-columns: 1fr; }
   .rb-step-arrow { display: none; }
   .rb-step-topline { flex-direction: column; }
+  .rb-explain-flow { grid-template-columns: 1fr; }
+  .rb-explain-arrow { display: none; }
   .rb-step-panel-grid { grid-template-columns: 1fr; }
   .rb-step-memory-grid { grid-template-columns: 1fr; }
   .rb-phase-grid { grid-template-columns: 1fr; }
