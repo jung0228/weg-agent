@@ -559,7 +559,7 @@ def render_step_snapshot_gallery(bundle: dict[str, Any], compare_root: Path) -> 
     }
 
     cards = []
-    for step_index, action in enumerate(candidate_actions, start=1):
+    for step_index, action in enumerate(candidate_actions[:3], start=1):
         if not isinstance(action, dict):
             continue
         candidate_id = str(action.get("id", ""))
@@ -580,7 +580,7 @@ def render_step_snapshot_gallery(bundle: dict[str, Any], compare_root: Path) -> 
 
     return f"""
       <section class="step-gallery">
-        <div class="section-label">Step snapshots</div>
+        <div class="section-label">Step snapshots (1-3)</div>
         <div class="step-grid">
           {''.join(cards)}
         </div>
@@ -701,14 +701,14 @@ def render_model_card(bundle: dict[str, Any], compare_root: Path) -> str:
           {chip(profile.get("family", "") or "baseline", "teal")}
           {chip(task_name, "gray")}
         </div>
-        <div class="small"><b>Reason:</b> {esc(first_line(result.get("selection_reason", ""), 220))}</div>
+        {step_gallery}
+        <div class="small" style="margin-top:12px"><b>Reason:</b> {esc(first_line(result.get("selection_reason", ""), 220))}</div>
         <div class="metric-row compact">
           <div class="metric"><div class="value">{candidate_count}</div><div class="label">candidates</div></div>
           <div class="metric"><div class="value">{memory_count}</div><div class="label">memory items</div></div>
         </div>
         <div class="small" style="line-height:1.7"><b>Run:</b> {esc(metadata.get("run_id", ""))}</div>
         {synapse_trace}
-        {step_gallery}
         <details style="margin-top:12px">
           <summary>Run metadata</summary>
           <pre>{esc(json.dumps(metadata, ensure_ascii=False, indent=2))}</pre>
