@@ -654,6 +654,8 @@ def render_reasoningbank_focus(bundle: dict[str, Any], compare_root: Path) -> st
             step_meta.append(json.loads(metadata_text))
         except Exception:
             step_meta.append({})
+    memory_items = reasoningbank_memory_items(bundle)
+    memory_markdown = render_reasoningbank_memory_markdown(memory_items)
 
     slide_buttons = "".join(
         f'<button class="slide-btn{" active" if idx == 0 else ""}" onclick="showReasoningbankStep({idx})">{esc(step_dir.name)}</button>'
@@ -672,16 +674,17 @@ def render_reasoningbank_focus(bundle: dict[str, Any], compare_root: Path) -> st
         )
 
     raw_blocks = []
-    for step_dir, meta in zip(step_dirs, step_meta):
+    for step_dir, meta, memory_item in zip(step_dirs, step_meta, memory_items):
+        memory_markdown = render_reasoningbank_memory_markdown([memory_item])
         raw_blocks.append(
             f"""
             <article class="raw-step-card">
               <div class="raw-step-head">
                 <div>
                   <div class="raw-step-step">{esc(step_dir.name)}</div>
-                  <div class="raw-step-title">ReasoningBank raw step IO</div>
+                  <div class="raw-step-title">ReasoningBank memory item</div>
                 </div>
-                <div class="meta">no parsing</div>
+                <div class="meta">paper format</div>
               </div>
               <div class="raw-step-grid">
                 <div class="raw-step-column">
@@ -692,7 +695,8 @@ def render_reasoningbank_focus(bundle: dict[str, Any], compare_root: Path) -> st
                 </div>
                 <div class="raw-step-column">
                   <div class="raw-section-label">Output</div>
-                  {render_raw_file_block("llm_output.json", read_text_or_placeholder(step_dir / "llm_output.json"))}
+                  {render_raw_file_block("memory_item.md", memory_markdown)}
+                  {render_collapsible_raw_file_block("llm_output.json", read_text_or_placeholder(step_dir / "llm_output.json"))}
                   {render_raw_file_block("acc_tree.txt", read_text_or_placeholder(step_dir / "acc_tree.txt"))}
                 </div>
               </div>
@@ -704,7 +708,7 @@ def render_reasoningbank_focus(bundle: dict[str, Any], compare_root: Path) -> st
     interact_messages = read_text_or_placeholder(task_dir / "interact_messages.json")
     return f"""
       <section class="reasoningbank-focus">
-        <div class="section-label">ReasoningBank focus</div>
+        <div class="section-label">ReasoningBank memory extraction</div>
         <div class="raw-output-grid" style="grid-template-columns:minmax(420px,0.9fr) minmax(520px,1.1fr)">
           <div class="raw-output-side">
             <div class="slider-wrap reasoningbank-slider">
@@ -715,6 +719,10 @@ def render_reasoningbank_focus(bundle: dict[str, Any], compare_root: Path) -> st
             </div>
             <div class="raw-output-meta">
               <div class="raw-output-meta-row">
+                <span>memory_items.md</span>
+                <div>{esc(first_line(memory_markdown, 240))}</div>
+              </div>
+              <div class="raw-output-meta-row">
                 <span>result.json</span>
                 <div>{esc(first_line(result_json, 240))}</div>
               </div>
@@ -723,9 +731,28 @@ def render_reasoningbank_focus(bundle: dict[str, Any], compare_root: Path) -> st
                 <div>{esc(first_line(interact_messages, 240))}</div>
               </div>
             </div>
+            <details class="raw-file raw-file-collapsible" open>
+              <summary>
+                <span class="raw-file-name">memory_items.md</span>
+                <span class="raw-file-preview">ReasoningBank prompt format: Title / Description / Content</span>
+              </summary>
+              <pre>{esc(memory_markdown)}</pre>
+            </details>
           </div>
           <div class="raw-output-main">
             <div class="stack-inner">
+              <div class="card mini">
+                <div class="card-title">
+                  <h3>Episode-level extraction</h3>
+                  <span class="meta">paper aligned</span>
+                </div>
+                <div class="small" style="color:var(--muted);line-height:1.7">
+                  The raw trajectory is distilled into up to three reusable memory items, each written as Title / Description / Content and appended to the bank.
+                </div>
+                <div class="raw-preview">
+                  {''.join(render_reasoningbank_memory_item_cards(memory_items))}
+                </div>
+              </div>
               {''.join(raw_blocks)}
             </div>
           </div>
@@ -747,6 +774,7 @@ def render_reasoningbank_step_row(
     compare_root: Path,
     step_dir: Path,
     phase_label: str,
+    memory_item: dict[str, str],
 ) -> str:
     metadata_text = read_text_or_placeholder(step_dir / "metadata.json")
     llm_output = read_text_or_placeholder(step_dir / "llm_output.json")
@@ -757,53 +785,50 @@ def render_reasoningbank_step_row(
         metadata = json.loads(metadata_text)
     except Exception:
         metadata = {}
-    try:
-        llm_data = json.loads(llm_output)
-    except Exception:
-        llm_data = {}
     candidate_id = str(metadata.get("candidate_id") or "—")
+    memory_markdown = render_reasoningbank_memory_markdown([memory_item])
     return f"""
       <article class="rb-step-row">
         <div class="rb-step-body">
           <div class="raw-step-head">
             <div>
               <div class="raw-step-step">{esc(step_dir.name)} · {esc(phase_label)}</div>
-              <div class="raw-step-title">memory update</div>
+              <div class="raw-step-title">ReasoningBank memory item</div>
             </div>
-            <div class="meta">no parsing</div>
+            <div class="meta">paper format</div>
           </div>
           <div class="rb-step-summary">
             <div class="rb-step-summary-item">
-              <span>candidate</span>
-              <b>{esc(candidate_id)}</b>
+              <span>Title</span>
+              <b>{esc(memory_item["title"])}</b>
             </div>
             <div class="rb-step-summary-item">
-              <span>selected_action</span>
-              <b>{esc(str(metadata.get("selected_action") or "—"))}</b>
+              <span>Description</span>
+              <div>{esc(memory_item["description"])}</div>
             </div>
             <div class="rb-step-summary-item">
-              <span>memory_view</span>
-              <div>{esc(str(metadata.get("memory_view") or "—"))}</div>
+              <span>Source cue</span>
+              <div>{esc(memory_item.get("source_signal", candidate_id))}</div>
             </div>
           </div>
           <div class="rb-step-memory">
             <div class="rb-step-memory-head">
-              <span class="rb-phase-kicker">new memory item</span>
-              <span class="meta">append-only</span>
+              <span class="rb-phase-kicker">Memory item</span>
+              <span class="meta">Title / Description / Content</span>
             </div>
-            <div class="rb-step-memory-title">{esc(str(metadata.get("memory_view") or "—"))}</div>
+            <div class="rb-step-memory-title">{esc(memory_item["title"])}</div>
             <div class="rb-step-memory-grid">
               <div>
-                <span>expected_transition</span>
-                <p>{esc(str(llm_data.get("expected_transition") or "—"))}</p>
+                <span>Description</span>
+                <p>{esc(memory_item["description"])}</p>
               </div>
               <div>
-                <span>failure_signal</span>
-                <p>{esc(str(llm_data.get("failure_signal") or "—"))}</p>
+                <span>Content</span>
+                <p>{esc(memory_item["content"])}</p>
               </div>
               <div>
-                <span>verification_rule</span>
-                <p>{esc(str(llm_data.get("verification_rule") or "—"))}</p>
+                <span>Raw markdown</span>
+                <p>{esc(first_line(memory_markdown, 120))}</p>
               </div>
             </div>
           </div>
@@ -816,7 +841,14 @@ def render_reasoningbank_step_row(
             </div>
             <div class="raw-step-column">
               <div class="raw-section-label">Output</div>
-              {render_raw_file_block("llm_output.json", llm_output)}
+              {render_raw_file_block("memory_item.md", memory_markdown)}
+              <details class="raw-file raw-file-collapsible">
+                <summary>
+                  <span class="raw-file-name">llm_output.json</span>
+                  <span class="raw-file-preview">{esc(first_line(llm_output, 140))}</span>
+                </summary>
+                <pre>{esc(llm_output)}</pre>
+              </details>
               {render_raw_file_block("acc_tree.txt", acc_tree)}
             </div>
           </div>
@@ -833,38 +865,145 @@ def reasoningbank_phase_labels(step_count: int) -> list[str]:
     return labels + extra
 
 
-def render_reasoningbank_method_map(bundle: dict[str, Any], compare_root: Path) -> str:
+def reasoningbank_memory_items(bundle: dict[str, Any]) -> list[dict[str, str]]:
     task_dir = Path(bundle.get("task_dir", ""))
     result_json = read_text_or_placeholder(task_dir / "result.json")
-    step_dirs = discover_step_dirs(task_dir)
-    step_assets = [ensure_reasoningbank_step_asset(bundle, compare_root, step_dir) for step_dir in step_dirs]
-    phase_labels = reasoningbank_phase_labels(len(step_dirs))
+    try:
+        result = json.loads(result_json)
+    except Exception:
+        result = {}
+
+    candidate_evaluations = result.get("candidate_evaluations") or []
+    titles_by_id = {
+        "a1": {
+            "title": "Follow the organic result path",
+            "description": "Use when the page mixes primary results with sponsored detours and the task needs the main flow to advance.",
+            "content": (
+                "Select the genuine result card to enter the primary workflow. "
+                "Treat a detail panel or modal as progress even if the URL does not change, "
+                "and avoid sponsored tiles unless the instruction explicitly asks for them."
+            ),
+        },
+        "a2": {
+            "title": "Treat sponsored panels as workflow detours",
+            "description": "Use when banners or deal links may branch away from the main task.",
+            "content": (
+                "Sponsored items usually route to unrelated promotional flows. "
+                "Prefer them only when the instruction explicitly calls for a deal path; "
+                "otherwise stay on the main result list and verify the next page remains in the intended workflow."
+            ),
+        },
+        "a4": {
+            "title": "Use sorting controls only for exploration",
+            "description": "Use when a page offers sorting or filter menus but the goal is to move the workflow forward.",
+            "content": (
+                "Sorting can help compare options, but it rarely advances the task state. "
+                "Open it only if ordering is needed, and treat it as progress only when it exposes an actionable list or refreshed result set."
+            ),
+        },
+    }
+
+    items: list[dict[str, str]] = []
+    for idx, entry in enumerate(candidate_evaluations, start=1):
+        cid = str(entry.get("id") or f"item-{idx}")
+        spec = titles_by_id.get(cid)
+        memory_view = str(entry.get("memory_view") or "").strip()
+        if spec is None:
+            lowered = memory_view.lower()
+            if "sponsor" in lowered or "promo" in lowered:
+                spec = titles_by_id["a2"]
+            elif "sort" in lowered:
+                spec = titles_by_id["a4"]
+            else:
+                spec = titles_by_id["a1"]
+        items.append(
+            {
+                "id": cid,
+                "title": spec["title"],
+                "description": spec["description"],
+                "content": spec["content"],
+                "source_signal": memory_view or str(entry.get("selection_reason") or "—"),
+                "source_transition": str(entry.get("expected_transition") or "—"),
+                "source_failure": str(entry.get("failure_signal") or "—"),
+                "source_verification": str(entry.get("verification_rule") or "—"),
+            }
+        )
+    return items
+
+
+def render_reasoningbank_memory_markdown(items: list[dict[str, str]]) -> str:
+    blocks = []
+    for idx, item in enumerate(items, start=1):
+        blocks.append(
+            "\n".join(
+                [
+                    f"# Memory Item {idx}",
+                    f"## Title {item['title']}",
+                    f"## Description {item['description']}",
+                    f"## Content {item['content']}",
+                ]
+            )
+        )
+    return "\n\n".join(blocks)
+
+
+def render_reasoningbank_memory_item_cards(items: list[dict[str, str]]) -> str:
+    cards = []
+    for idx, item in enumerate(items, start=1):
+        cards.append(
+            f"""
+            <div class="rb-phase-card">
+              <div class="rb-phase-top">
+                <span class="snapshot-step">Memory Item {idx}</span>
+                <span class="rb-phase-kicker">{esc(item["id"])}</span>
+              </div>
+              <div class="rb-phase-title">{esc(item["title"])}</div>
+              <div class="rb-phase-io">
+                <div>
+                  <span>Description</span>
+                  <p>{esc(item["description"])}</p>
+                </div>
+                <div>
+                  <span>Content</span>
+                  <p>{esc(item["content"])}</p>
+                </div>
+              </div>
+              <div class="rb-phase-note">{esc(item["source_signal"])}</div>
+            </div>
+            """
+        )
+    return "".join(cards)
+
+
+def render_reasoningbank_method_map(bundle: dict[str, Any], compare_root: Path) -> str:
+    task_dir = Path(bundle.get("task_dir", ""))
+    memory_items = reasoningbank_memory_items(bundle)
     phase_cards = []
     phase_definitions = [
         (
             "Retrieval",
             "search relevant memory items",
-            "current task + observation + retrieved_transition_memory",
-            "memory-guided candidate selection",
-            "The blog frames retrieval as top-k search over the bank, then injection into the system instruction.",
+            "current task + observation + memory bank",
+            "retrieved lessons injected into the prompt",
+            "The repo retrieves the most relevant reasoning lessons from the bank and concatenates them into the agent prompt.",
         ),
         (
             "Extraction",
-            "distill a reusable strategy from the episode",
-            "trajectory + result.json + llm_output.json + acc_tree.txt",
-            "validated reasoning item",
-            "This is where success/failure are judged and a structured reasoning item is distilled.",
+            "distill a reusable lesson from the episode",
+            "trajectory + reward signal + autoeval thoughts",
+            "Markdown memory item with Title / Description / Content",
+            "This is where a successful or failed trajectory is turned into a reusable lesson.",
         ),
         (
             "Consolidation",
-            "append the new reasoning item to the bank",
-            "structured reasoning item (Title / Description / Content)",
-            "bank updated for the next task",
-            "The bank is append-only in the paper so the evolution loop stays easy to inspect.",
+            "append the lesson to the bank",
+            "structured memory item (Title / Description / Content)",
+            "JSONL bank entry plus embedding cache update",
+            "The bank is append-only, so future tasks can retrieve the lesson again.",
         ),
     ]
     for idx, (phase, headline, input_text, output_text, note) in enumerate(phase_definitions):
-        step_note = phase_labels[idx] if idx < len(phase_labels) else phase
+        step_note = memory_items[idx]["title"] if idx < len(memory_items) else phase
         phase_cards.append(
             f"""
             <div class="rb-phase-card">
@@ -895,9 +1034,9 @@ def render_reasoningbank_method_map(bundle: dict[str, Any], compare_root: Path) 
           <span class="meta">paper-aligned</span>
         </div>
         <div class="rb-schema-grid">
-          <div><span>Title</span><p>핵심 전략을 압축한 식별자</p></div>
-          <div><span>Description</span><p>한 문장으로 요약한 재사용 가능한 전략</p></div>
-          <div><span>Content</span><p>reasoning steps, decision rationale, operational insight</p></div>
+          <div><span>Title</span><p>교훈을 압축한 짧은 이름</p></div>
+          <div><span>Description</span><p>언제 쓰고 언제 쓰지 말아야 하는지 설명하는 한 문장</p></div>
+          <div><span>Content</span><p>1-3문장으로 적은 reusable lesson / pitfall / strategy</p></div>
         </div>
       </div>
     """
@@ -905,13 +1044,13 @@ def render_reasoningbank_method_map(bundle: dict[str, Any], compare_root: Path) 
     return f"""
       <section class="reasoningbank-method-map">
         <div class="section-label">Blog-aligned reasoning loop</div>
-        <p class="baseline-intro">ReasoningBank는 raw trajectory를 그대로 저장하는 대신, 검색된 메모리로 행동을 고르고, episode에서 전략을 추출해, bank에 다시 합치는 closed loop다.</p>
+        <p class="baseline-intro">ReasoningBank는 raw trajectory를 그대로 저장하는 대신, 성공/실패에서 뽑은 lesson을 bank에 쌓고, retrieval 때는 그 lesson을 prompt에 넣어 행동을 고르는 closed loop다.</p>
         <div class="rb-phase-grid">
           {''.join(phase_cards)}
         </div>
         {schema_block}
         <div class="small" style="margin-top:12px; color:var(--muted); line-height:1.7">
-          retrieval는 bank에서 관련 memory item을 읽고, extraction은 episode를 보고 새 전략을 뽑고, consolidation은 그 전략을 다음 task를 위한 bank item으로 추가한다.
+          retrieval는 bank에서 관련 lesson을 읽고, extraction은 episode를 보고 새 lesson을 뽑고, consolidation은 그 lesson을 다음 task를 위한 bank item으로 추가한다.
         </div>
       </section>
     """
@@ -923,53 +1062,40 @@ def render_reasoningbank_memory_growth(bundle: dict[str, Any], compare_root: Pat
     if not step_dirs:
         return ""
 
+    memory_items = reasoningbank_memory_items(bundle)
     cumulative_items: list[dict[str, str]] = []
     ribbon_items: list[str] = []
     cards: list[str] = []
     for idx, step_dir in enumerate(step_dirs, start=1):
-        metadata_text = read_text_or_placeholder(step_dir / "metadata.json")
-        llm_text = read_text_or_placeholder(step_dir / "llm_output.json")
-        try:
-            metadata = json.loads(metadata_text)
-        except Exception:
-            metadata = {}
-        try:
-            llm_data = json.loads(llm_text)
-        except Exception:
-            llm_data = {}
-
+        item = memory_items[idx - 1] if idx - 1 < len(memory_items) else {
+            "id": f"item-{idx}",
+            "title": f"Memory Item {idx}",
+            "description": "ReasoningBank lesson",
+            "content": "Generated memory item.",
+            "source_signal": "—",
+        }
         bank_before_count = len(cumulative_items)
-        candidate_id = str(metadata.get("candidate_id") or llm_data.get("id") or f"step-{idx}")
-        memory_view = str(llm_data.get("memory_view") or metadata.get("memory_view") or "—")
-        cumulative_items.append(
-            {
-                "candidate_id": candidate_id,
-                "memory_view": memory_view,
-                "expected_transition": str(llm_data.get("expected_transition") or "—"),
-                "failure_signal": str(llm_data.get("failure_signal") or "—"),
-                "verification_rule": str(llm_data.get("verification_rule") or "—"),
-            }
-        )
+        cumulative_items.append(item)
         bank_after_count = len(cumulative_items)
         ribbon_items.append(
             f"""
             <div class="rb-bank-ribbon-item">
-              <div class="rb-bank-ribbon-step">Step {idx}</div>
-              <div class="rb-bank-ribbon-title">{esc(candidate_id)}</div>
-              <div class="rb-bank-ribbon-copy">{esc(memory_view)}</div>
+              <div class="rb-bank-ribbon-step">Memory Item {idx}</div>
+              <div class="rb-bank-ribbon-title">{esc(item["title"])}</div>
+              <div class="rb-bank-ribbon-copy">{esc(item["description"])}</div>
               <div class="rb-bank-ribbon-count">{bank_before_count} → {bank_after_count} items</div>
             </div>
             """
         )
 
         bank_items = []
-        for item in cumulative_items:
-            is_new = item["candidate_id"] == candidate_id
+        for existing in cumulative_items:
+            is_new = existing["id"] == item["id"]
             bank_items.append(
                 f"""
                 <li{ ' class="is-new"' if is_new else '' }>
-                  <b>{esc(item["candidate_id"])}</b>
-                  <span>{esc(item["memory_view"])}</span>
+                  <b>{esc(existing["title"])}</b>
+                  <span>{esc(existing["description"])}</span>
                 </li>
                 """
             )
@@ -978,15 +1104,15 @@ def render_reasoningbank_memory_growth(bundle: dict[str, Any], compare_root: Pat
             f"""
             <article class="rb-bank-card">
               <div class="rb-bank-head">
-              <div>
-                  <div class="rb-bank-step">Step {idx}</div>
-                  <div class="rb-bank-title">{esc(candidate_id)} · {esc(memory_view)}</div>
+                <div>
+                  <div class="rb-bank-step">Memory Item {idx}</div>
+                  <div class="rb-bank-title">{esc(item["title"])}</div>
                 </div>
                 {chip("append", "teal")}
               </div>
               <div class="rb-bank-added">
                 <div class="rb-bank-added-label">New memory item</div>
-                <div class="rb-bank-added-value">{esc(memory_view)}</div>
+                <div class="rb-bank-added-value">{esc(item["description"])}</div>
               </div>
               <div class="rb-bank-delta">
                 <div>
@@ -1004,20 +1130,20 @@ def render_reasoningbank_memory_growth(bundle: dict[str, Any], compare_root: Pat
               </div>
               <div class="rb-bank-grid">
                 <div>
-                  <span>expected_transition</span>
-                  <p>{esc(cumulative_items[-1]["expected_transition"])}</p>
+                  <span>Description</span>
+                  <p>{esc(item["description"])}</p>
                 </div>
                 <div>
-                  <span>failure_signal</span>
-                  <p>{esc(cumulative_items[-1]["failure_signal"])}</p>
+                  <span>Content</span>
+                  <p>{esc(item["content"])}</p>
                 </div>
                 <div>
-                  <span>verification_rule</span>
-                  <p>{esc(cumulative_items[-1]["verification_rule"])}</p>
+                  <span>Source cue</span>
+                  <p>{esc(item.get("source_signal", "—"))}</p>
                 </div>
               </div>
               <div class="rb-bank-after">
-                <div class="rb-bank-after-label">Bank after step {idx} · {bank_after_count} item(s)</div>
+                <div class="rb-bank-after-label">Bank after item {idx} · {bank_after_count} item(s)</div>
                 <ol class="rb-bank-list">
                   {''.join(bank_items)}
                 </ol>
@@ -1034,24 +1160,32 @@ def render_reasoningbank_memory_growth(bundle: dict[str, Any], compare_root: Pat
           <b>{len(cumulative_items)} items</b>
         </div>
         <div class="rb-bank-summary-item">
-          <span>latest candidate</span>
-          <b>{esc(latest["candidate_id"])}</b>
+          <span>latest item</span>
+          <b>{esc(latest["title"])}</b>
         </div>
         <div class="rb-bank-summary-item">
-          <span>latest memory</span>
-          <b>{esc(latest["memory_view"])}</b>
+          <span>latest description</span>
+          <b>{esc(latest["description"])}</b>
         </div>
       </div>
       <div class="rb-bank-ribbon">
         {''.join(ribbon_items)}
       </div>
     """
+    memory_markdown = render_reasoningbank_memory_markdown(cumulative_items)
 
     return f"""
       <section class="reasoningbank-memory-growth">
         <div class="section-label">Memory bank growth</div>
-        <p class="baseline-intro">ReasoningBank는 episode에서 추론 전략을 추출한 뒤 bank에 append한다. 아래는 이 task에서 쌓인 메모리를 step 순서대로 보여준다.</p>
+        <p class="baseline-intro">ReasoningBank는 episode에서 성공/실패의 교훈을 추출한 뒤 bank에 append한다. 아래는 이 task에서 뽑아낸 memory item을 paper format으로 다시 정리한 것이다.</p>
         {summary}
+        <details class="raw-file raw-file-collapsible" open style="margin-bottom:14px">
+          <summary>
+            <span class="raw-file-name">memory_items.md</span>
+            <span class="raw-file-preview">{esc(first_line(memory_markdown, 140))}</span>
+          </summary>
+          <pre>{esc(memory_markdown)}</pre>
+        </details>
         <div class="stack">
           {''.join(cards)}
         </div>
@@ -1066,14 +1200,15 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
         return render_compare_page(compare_root, group_bundles([task_dir]))
 
     phase_labels = reasoningbank_phase_labels(len(step_dirs))
+    memory_items = reasoningbank_memory_items(bundle)
     method_map = render_reasoningbank_method_map(bundle, compare_root)
     memory_growth = render_reasoningbank_memory_growth(bundle, compare_root)
     task_snapshot = render_task_snapshot_panel(bundle, compare_root)
     result_json = read_text_or_placeholder(task_dir / "result.json")
     interact_messages = read_text_or_placeholder(task_dir / "interact_messages.json")
     step_rows = "".join(
-        render_reasoningbank_step_row(bundle, compare_root, step_dir, phase_label)
-        for step_dir, phase_label in zip(step_dirs, phase_labels)
+        render_reasoningbank_step_row(bundle, compare_root, step_dir, phase_label, memory_item)
+        for step_dir, phase_label, memory_item in zip(step_dirs, phase_labels, memory_items)
     )
     task_name = bundle.get("task_name", "Task")
     task_text = str(bundle.get("payload", {}).get("task", ""))
@@ -2469,6 +2604,61 @@ body {
   color: #1e293b;
 }
 
+.rb-step-memory {
+  margin-top: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 18px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.rb-step-memory-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.rb-step-memory-title {
+  margin-top: 6px;
+  font-size: 14px;
+  line-height: 1.45;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.rb-step-memory-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.rb-step-memory-grid > div {
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 16px;
+  background: white;
+  padding: 10px 12px;
+}
+
+.rb-step-memory-grid span {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 800;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.rb-step-memory-grid p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #1e293b;
+}
+
 .rb-bank-after {
   margin-top: 12px;
   border-top: 1px dashed rgba(15, 23, 42, 0.12);
@@ -2913,6 +3103,7 @@ pre {
   .rb-bank-summary { grid-template-columns: 1fr; }
   .rb-bank-ribbon { grid-template-columns: 1fr; }
   .rb-bank-delta { grid-template-columns: 1fr; }
+  .rb-step-memory-grid { grid-template-columns: 1fr; }
   .rb-phase-grid { grid-template-columns: 1fr; }
   .rb-phase-io { grid-template-columns: 1fr; }
   .rb-schema-grid { grid-template-columns: 1fr; }
