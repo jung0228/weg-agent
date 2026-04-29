@@ -145,6 +145,13 @@ def parse_json_text(text: str) -> Any:
     return parsed if isinstance(parsed, (dict, list)) else {}
 
 
+def load_json_or_none(path: Path) -> Any | None:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
 def join_preview(items: list[str], limit: int = 3) -> str:
     cleaned = [item for item in (str(item).strip() for item in items) if item]
     if not cleaned:
@@ -1170,71 +1177,334 @@ def render_reasoningbank_method_map(bundle: dict[str, Any], compare_root: Path) 
     """
 
 
-def render_reasoningbank_explainer(bundle: dict[str, Any], compare_root: Path) -> str:
-    memory_items = reasoningbank_memory_items(bundle)
-    exemplar = memory_items[0] if memory_items else {
-        "title": "Memory item",
-        "description": "A reusable lesson from the episode.",
-        "content": "A consolidated lesson that can be reused on the next task.",
+def load_reasoningbank_episode_trace(task_dir: Path) -> dict[str, Any] | None:
+    parsed = load_json_or_none(task_dir / "reasoningbank_episode_trace.json")
+    return parsed if isinstance(parsed, dict) else None
+
+
+def render_episode_memory_cards(items: list[dict[str, Any]], highlight_ids: set[str] | None = None) -> str:
+    highlight_ids = highlight_ids or set()
+    cards = []
+    for item in items:
+        item_id = str(item.get("id") or "memory")
+        class_name = "rb-episode-memory-card is-highlighted" if item_id in highlight_ids else "rb-episode-memory-card"
+        cards.append(
+            f"""
+            <div class="{class_name}">
+              <div class="rb-memory-card-top">
+                <span class="snapshot-step">{esc(item_id)}</span>
+                {chip("retrieved", "teal") if item_id in highlight_ids else ""}
+              </div>
+              <strong>{esc(str(item.get("title") or "Memory item"))}</strong>
+              <p>{esc(str(item.get("description") or "—"))}</p>
+              <div>{esc(str(item.get("content") or "—"))}</div>
+            </div>
+            """
+        )
+    return "".join(cards) if cards else '<div class="rb-empty-state">No memory items yet.</div>'
+
+
+def render_episode_initial_bank(episode: dict[str, Any]) -> str:
+    initial_bank = episode.get("initial_bank", [])
+    items = initial_bank if isinstance(initial_bank, list) else []
+    return f"""
+      <article class="rb-episode-card">
+        <div class="rb-step-topline">
+          <div>
+            <div class="raw-step-step">Initial value</div>
+            <div class="raw-step-title">Memory bank before this task</div>
+          </div>
+          <div class="meta">{len(items)} items</div>
+        </div>
+        <div class="rb-step-note">
+          이 task를 시작할 때 ReasoningBank가 이미 가지고 있는 lesson이다. action LLM은 매 스텝에서 여기서 관련 item을 retrieval해서 prompt input으로 받는다.
+        </div>
+        <div class="rb-episode-memory-grid">
+          {render_episode_memory_cards([item for item in items if isinstance(item, dict)])}
+        </div>
+      </article>
+    """
+
+
+def render_episode_step(step: dict[str, Any], bank_by_id: dict[str, dict[str, Any]]) -> str:
+    observation = step.get("observation", {})
+    observation = observation if isinstance(observation, dict) else {}
+    visible_elements = observation.get("visible_elements", [])
+    visible_elements = visible_elements if isinstance(visible_elements, list) else []
+    candidate_actions = step.get("candidate_actions", [])
+    candidate_actions = candidate_actions if isinstance(candidate_actions, list) else []
+    retrieved_ids = [str(item) for item in step.get("retrieved_memory_ids", []) if str(item)]
+    retrieved_items = [bank_by_id[item_id] for item_id in retrieved_ids if item_id in bank_by_id]
+    llm_output = step.get("llm_output", {})
+    llm_output = llm_output if isinstance(llm_output, dict) else {}
+    env_result = step.get("environment_result", {})
+    env_result = env_result if isinstance(env_result, dict) else {}
+    bank_delta = step.get("bank_delta", {})
+    bank_delta = bank_delta if isinstance(bank_delta, dict) else {}
+
+    candidate_rows = []
+    for action in candidate_actions:
+        if not isinstance(action, dict):
+            continue
+        selected = str(action.get("id") or "") == str(llm_output.get("selected_action") or "")
+        candidate_rows.append(
+            f"""
+            <li{' class="is-selected"' if selected else ''}>
+              <b>{esc(str(action.get("id") or "candidate"))}</b>
+              <span>{esc(str(action.get("action") or "—"))}</span>
+              <em>{esc(str(action.get("surface") or ""))}</em>
+            </li>
+            """
+        )
+
+    raw_input = {
+        "task": step.get("task"),
+        "observation": observation,
+        "retrieved_memory": retrieved_items,
+        "candidate_actions": candidate_actions,
+        "trajectory_so_far": "included from previous action turns",
+    }
+    raw_output = {
+        "llm_output": llm_output,
+        "environment_result": env_result,
+        "bank_delta": bank_delta,
     }
 
-    cards = [
-        (
-            "Loop 1",
-            "Action turn",
-            "task + current observation + retrieved memory",
-            "selected action + reasoning",
-            "This is what Step 1 / Step 2 / Step 3 show. The bank is only read here, not updated.",
-        ),
-        (
-            "Loop 2",
-            "Memory extraction",
-            "full trajectory + result.json + llm_output.json + acc_tree.txt",
-            "Title / Description / Content memory item",
-            "This happens after the episode finishes and turns the episode into a reusable lesson.",
-        ),
-        (
-            "Loop 3",
-            "Consolidation",
-            "new memory item",
-            "bank appended for the next task",
-            f"{exemplar['title']} · {exemplar['description']}",
-        ),
-    ]
+    return f"""
+      <article class="rb-episode-card">
+        <div class="rb-step-topline">
+          <div>
+            <div class="raw-step-step">{esc(str(step.get("label") or f"Step {step.get('step', '')}"))} · action selection</div>
+            <div class="raw-step-title">{esc(str(observation.get("state_id") or "state"))}</div>
+          </div>
+          <div class="meta">policy LLM turn</div>
+        </div>
+        <div class="rb-step-note">
+          이 단계에서 LLM에게 들어가는 것은 현재 관측, 후보 action, 지금까지의 trajectory, 그리고 retrieval된 memory다. 새 memory는 아직 추가되지 않는다.
+        </div>
+        <div class="rb-step-io-grid">
+          <section class="rb-step-panel">
+            <div class="rb-step-panel-head">
+              <span class="rb-phase-kicker">Input to LLM</span>
+              <span class="meta">retrieval + prompt packet</span>
+            </div>
+            <div class="rb-step-panel-title">{esc(str(step.get("llm_input_summary") or "task + observation + memory + candidates"))}</div>
+            <div class="rb-step-panel-grid">
+              <div class="rb-step-field full">
+                <span>Task</span>
+                <div>{esc(str(step.get("task") or "—"))}</div>
+              </div>
+              <div class="rb-step-field">
+                <span>Observation</span>
+                <div>{esc(str(observation.get("summary") or "—"))}</div>
+              </div>
+              <div class="rb-step-field">
+                <span>Visible elements</span>
+                <div>{esc(join_preview([str(item) for item in visible_elements], limit=5))}</div>
+              </div>
+              <div class="rb-step-field full">
+                <span>Retrieved memory</span>
+                <div class="rb-inline-memory-list">
+                  {render_episode_memory_cards(retrieved_items, set(retrieved_ids))}
+                </div>
+              </div>
+              <div class="rb-step-field full">
+                <span>Candidate actions</span>
+                <ol class="rb-candidate-list">{''.join(candidate_rows)}</ol>
+              </div>
+            </div>
+          </section>
+          <div class="rb-step-arrow" aria-hidden="true">→</div>
+          <section class="rb-step-panel">
+            <div class="rb-step-panel-head">
+              <span class="rb-phase-kicker">Output from LLM / env</span>
+              <span class="meta">action + transition</span>
+            </div>
+            <div class="rb-step-panel-title">{esc(str(llm_output.get("action") or llm_output.get("selected_action") or "—"))}</div>
+            <div class="rb-step-panel-grid">
+              <div class="rb-step-field">
+                <span>Thought</span>
+                <div>{esc(str(llm_output.get("thought") or "—"))}</div>
+              </div>
+              <div class="rb-step-field">
+                <span>Selected action</span>
+                <div>{esc(str(llm_output.get("selected_action") or "—"))}</div>
+              </div>
+              <div class="rb-step-field">
+                <span>Environment transition</span>
+                <div>{esc(str(env_result.get("transition") or "—"))}</div>
+              </div>
+              <div class="rb-step-field">
+                <span>Verification</span>
+                <div>{esc(str(env_result.get("verification") or "—"))}</div>
+              </div>
+              <div class="rb-step-field full rb-bank-readonly">
+                <span>Memory bank status</span>
+                <div>{esc(str(bank_delta.get("before") or "0"))} → {esc(str(bank_delta.get("after") or "0"))} items. {esc(str(bank_delta.get("note") or "Read-only during the episode."))}</div>
+              </div>
+            </div>
+          </section>
+        </div>
+        <details class="raw-file raw-file-collapsible">
+          <summary>
+            <span class="raw-file-name">raw input/output packet</span>
+            <span class="raw-file-preview">exact JSON shown without extra parsing</span>
+          </summary>
+          <div class="raw-step-grid" style="margin-top:12px">
+            <div class="raw-step-column">
+              <div class="raw-section-label">Input</div>
+              {render_raw_file_block("policy_input.json", json.dumps(raw_input, ensure_ascii=False, indent=2))}
+            </div>
+            <div class="raw-step-column">
+              <div class="raw-section-label">Output</div>
+              {render_raw_file_block("policy_output_and_env.json", json.dumps(raw_output, ensure_ascii=False, indent=2))}
+            </div>
+          </div>
+        </details>
+      </article>
+    """
 
-    flow_cards = []
-    for label, title, input_text, output_text, note in cards:
-        flow_cards.append(
+
+def render_episode_post_episode(episode: dict[str, Any]) -> str:
+    extraction = episode.get("extraction", {})
+    extraction = extraction if isinstance(extraction, dict) else {}
+    consolidation = episode.get("consolidation", {})
+    consolidation = consolidation if isinstance(consolidation, dict) else {}
+    judge = episode.get("judge", {})
+    judge = judge if isinstance(judge, dict) else {}
+    extracted_items = extraction.get("items", [])
+    extracted_items = extracted_items if isinstance(extracted_items, list) else []
+    final_bank = episode.get("final_bank", [])
+    final_bank = final_bank if isinstance(final_bank, list) else []
+
+    before_count = int(consolidation.get("bank_before_count") or 0)
+    append_cards = []
+    running_count = before_count
+    for item in extracted_items:
+        if not isinstance(item, dict):
+            continue
+        running_count += 1
+        source_steps = item.get("source_steps", [])
+        source_steps = source_steps if isinstance(source_steps, list) else []
+        append_cards.append(
             f"""
-            <div class="rb-explain-card">
-              <div class="rb-explain-head">
-                <span class="rb-phase-kicker">{esc(label)}</span>
-                <strong>{esc(title)}</strong>
+            <div class="rb-append-card">
+              <div class="rb-memory-card-top">
+                <span class="snapshot-step">append {esc(str(item.get("id") or ""))}</span>
+                <span class="meta">{running_count - 1} → {running_count} items</span>
               </div>
-              <div class="rb-explain-io">
-                <div>
-                  <span>Input</span>
-                  <p>{esc(input_text)}</p>
-                </div>
-                <div>
-                  <span>Output</span>
-                  <p>{esc(output_text)}</p>
-                </div>
-              </div>
-              <div class="rb-explain-note">{esc(note)}</div>
+              <strong>{esc(str(item.get("title") or "Memory item"))}</strong>
+              <p>{esc(str(item.get("description") or "—"))}</p>
+              <div>{esc(str(item.get("content") or "—"))}</div>
+              <small>source: {esc(join_preview([str(step) for step in source_steps], limit=4))}</small>
             </div>
             """
         )
 
+    raw_extraction = {
+        "input": extraction.get("input"),
+        "output_format": extraction.get("output_format"),
+        "items": extracted_items,
+    }
+
     return f"""
-      <section class="reasoningbank-explainer">
-        <div class="section-label">How to read this page</div>
+      <article class="rb-episode-card rb-post-episode-card">
+        <div class="rb-step-topline">
+          <div>
+            <div class="raw-step-step">After episode</div>
+            <div class="raw-step-title">Judge → extraction → consolidation</div>
+          </div>
+          <div class="meta">{esc(str(consolidation.get("bank_before_count") or 0))} → {esc(str(consolidation.get("bank_after_count") or len(final_bank)))} items</div>
+        </div>
+        <div class="rb-step-note">
+          여기서부터 bank가 실제로 변한다. 전체 trajectory와 성공/실패 signal을 보고 reusable lesson을 뽑은 다음, 다음 task에서 retrieval될 수 있도록 bank에 추가한다.
+        </div>
+        <div class="rb-post-grid">
+          <section class="rb-step-panel">
+            <div class="rb-step-panel-head">
+              <span class="rb-phase-kicker">LLM-as-a-Judge</span>
+              <span class="meta">episode signal</span>
+            </div>
+            <div class="rb-step-panel-title">{esc(str(judge.get("output") or "—"))}</div>
+            <div class="rb-step-panel-grid">
+              <div class="rb-step-field">
+                <span>Input</span>
+                <div>{esc(str(judge.get("input") or "—"))}</div>
+              </div>
+              <div class="rb-step-field">
+                <span>Reason</span>
+                <div>{esc(str(judge.get("reason") or "—"))}</div>
+              </div>
+            </div>
+          </section>
+          <section class="rb-step-panel">
+            <div class="rb-step-panel-head">
+              <span class="rb-phase-kicker">Memory extraction</span>
+              <span class="meta">trajectory → lesson</span>
+            </div>
+            <div class="rb-step-panel-title">{esc(str(extraction.get("output_format") or "Title / Description / Content"))}</div>
+            <div class="rb-step-panel-grid">
+              <div class="rb-step-field">
+                <span>Input</span>
+                <div>{esc(str(extraction.get("input") or "—"))}</div>
+              </div>
+              <div class="rb-step-field">
+                <span>Output count</span>
+                <div>{len(extracted_items)} memory item(s)</div>
+              </div>
+            </div>
+          </section>
+        </div>
+        <div class="rb-consolidation-block">
+          <div class="rb-memory-card-top">
+            <span class="rb-phase-kicker">Consolidation</span>
+            <span class="meta">append-only bank update</span>
+          </div>
+          <div class="rb-append-grid">
+            {''.join(append_cards)}
+          </div>
+        </div>
+        <div class="rb-consolidation-block">
+          <div class="rb-memory-card-top">
+            <span class="rb-phase-kicker">Final memory bank for next task</span>
+            <span class="meta">{len(final_bank)} items</span>
+          </div>
+          <div class="rb-episode-memory-grid">
+            {render_episode_memory_cards([item for item in final_bank if isinstance(item, dict)], {str(item.get("id")) for item in extracted_items if isinstance(item, dict)})}
+          </div>
+        </div>
+        <details class="raw-file raw-file-collapsible">
+          <summary>
+            <span class="raw-file-name">extraction_and_consolidation.json</span>
+            <span class="raw-file-preview">post-episode memory write packet</span>
+          </summary>
+          {render_raw_file_block("memory_extraction.json", json.dumps(raw_extraction, ensure_ascii=False, indent=2))}
+        </details>
+      </article>
+    """
+
+
+def render_reasoningbank_episode_flow(episode: dict[str, Any]) -> str:
+    initial_bank = episode.get("initial_bank", [])
+    initial_items = [item for item in initial_bank if isinstance(item, dict)] if isinstance(initial_bank, list) else []
+    bank_by_id = {str(item.get("id")): item for item in initial_items}
+    steps = episode.get("steps", [])
+    step_cards = [
+        render_episode_step(step, bank_by_id)
+        for step in steps
+        if isinstance(step, dict)
+    ] if isinstance(steps, list) else []
+
+    return f"""
+      <section class="reasoningbank-step-list">
+        <div class="section-label">Step-by-step captures</div>
         <p class="baseline-intro">
-          ReasoningBank has two separate loops: Step 1 / Step 2 / Step 3 are action turns, and the memory bank is updated only after the episode finishes.
-          The boxes below show where the input goes and what comes out at each point, and the memory checkpoint cards show how the bank grows over time.
+          아래 흐름이 실제 ReasoningBank episode 단위다. action step에서는 bank를 read-only로 retrieval해서 LLM input에 넣고, memory bank growth는 episode가 끝난 뒤 extraction/consolidation에서 한 번에 일어난다.
         </p>
-        <div class="rb-explain-flow">
-          {''.join(flow_cards)}
+        <div class="stack rb-episode-stack">
+          {render_episode_initial_bank(episode)}
+          {''.join(step_cards)}
+          {render_episode_post_episode(episode)}
         </div>
       </section>
     """
@@ -1385,7 +1655,7 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
 
     step_labels = [f"Step {idx}" for idx in range(1, len(step_dirs) + 1)]
     method_map = render_reasoningbank_method_map(bundle, compare_root)
-    explainer = render_reasoningbank_explainer(bundle, compare_root)
+    episode_trace = load_reasoningbank_episode_trace(task_dir)
     task_snapshot = render_task_snapshot_panel(bundle, compare_root)
     memory_items = reasoningbank_memory_items(bundle)
     result_json = read_text_or_placeholder(task_dir / "result.json")
@@ -1405,6 +1675,18 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
                 )
             )
     step_rows = "".join(step_blocks)
+    if episode_trace is not None:
+        step_section = render_reasoningbank_episode_flow(episode_trace)
+    else:
+        step_section = f"""
+    <section class="reasoningbank-step-list">
+      <div class="section-label">Step-by-step captures</div>
+      <p class="baseline-intro">각 스텝은 action turn의 input/output을 보여준다. action step에서는 memory를 읽기만 하고, episode가 끝난 뒤 extraction/consolidation 단계에서 bank가 업데이트된다.</p>
+      <div class="stack">
+        {step_rows}
+      </div>
+    </section>
+        """
     task_name = bundle.get("task_name", "Task")
     task_text = str(bundle.get("payload", {}).get("task", ""))
     source_label_text = compact_source_label(bundle)
@@ -1434,7 +1716,7 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
           <div class="metric" style="flex:1 1 100%">
             <div class="label">What this page shows</div>
             <div class="small" style="color:#e2e8f0;line-height:1.7">
-              step마다 memory item이 어떻게 추가되는지 보여주고, 긴 prompt는 접어서 필요할 때만 펼쳐보게 했다.
+              초기 bank가 prompt에 어떻게 들어가고, action이 어떻게 선택되며, episode가 끝난 뒤 memory가 어떻게 append되는지 보여준다.
             </div>
           </div>
           <div class="metric" style="flex:1 1 100%">
@@ -1447,15 +1729,7 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
 
     {method_map}
 
-    {explainer}
-
-    <section class="reasoningbank-step-list">
-      <div class="section-label">Step-by-step captures</div>
-      <p class="baseline-intro">각 스텝은 action turn의 input/output을 보여준다. step 카드 바로 아래에 memory checkpoint를 붙여서, 어떤 lesson이 bank에 추가되고 다음 task에서 어떻게 다시 읽히는지 같이 본다.</p>
-      <div class="stack">
-        {step_rows}
-      </div>
-    </section>
+    {step_section}
 
     <details style="margin-top:16px">
       <summary>Task snapshot / bundle raw files</summary>
@@ -2977,7 +3251,7 @@ body {
   grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr);
   gap: 12px;
   margin-top: 12px;
-  align-items: stretch;
+  align-items: start;
 }
 
 .rb-step-panel {
@@ -3054,6 +3328,143 @@ body {
   line-height: 1.55;
   color: #1e293b;
   word-break: break-word;
+}
+
+.rb-episode-stack {
+  gap: 16px;
+}
+
+.rb-episode-card {
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 16px;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.06);
+}
+
+.rb-episode-memory-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.rb-episode-memory-card,
+.rb-append-card,
+.rb-empty-state {
+  min-width: 0;
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 18px;
+  background: linear-gradient(180deg, #fff, #f8fafc);
+  padding: 12px;
+}
+
+.rb-episode-memory-card.is-highlighted,
+.rb-append-card {
+  border-color: rgba(20, 184, 166, 0.35);
+  background: linear-gradient(180deg, #ecfdf5, #ffffff);
+}
+
+.rb-memory-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.rb-episode-memory-card strong,
+.rb-append-card strong {
+  display: block;
+  font-size: 13px;
+  line-height: 1.4;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.rb-episode-memory-card p,
+.rb-append-card p,
+.rb-episode-memory-card div,
+.rb-append-card div,
+.rb-append-card small,
+.rb-empty-state {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #334155;
+  overflow-wrap: anywhere;
+}
+
+.rb-inline-memory-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.rb-inline-memory-list .rb-episode-memory-card {
+  box-shadow: none;
+  padding: 10px;
+}
+
+.rb-candidate-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rb-candidate-list li {
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 14px;
+  background: #f8fafc;
+  padding: 9px 10px;
+}
+
+.rb-candidate-list li.is-selected {
+  border-color: rgba(20, 184, 166, 0.38);
+  background: #ecfdf5;
+}
+
+.rb-candidate-list b,
+.rb-candidate-list span,
+.rb-candidate-list em {
+  display: block;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.rb-candidate-list b {
+  color: #0f172a;
+  font-weight: 900;
+}
+
+.rb-candidate-list em {
+  color: var(--muted);
+  font-style: normal;
+}
+
+.rb-bank-readonly {
+  background: #f8fafc;
+}
+
+.rb-post-grid,
+.rb-append-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.rb-consolidation-block {
+  margin-top: 14px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 20px;
+  background: rgba(248, 250, 252, 0.82);
+  padding: 14px;
 }
 
 .rb-bank-after {
@@ -3597,6 +4008,9 @@ pre {
   .rb-phase-io { grid-template-columns: 1fr; }
   .rb-schema-grid { grid-template-columns: 1fr; }
   .rb-bank-grid { grid-template-columns: 1fr; }
+  .rb-episode-memory-grid { grid-template-columns: 1fr; }
+  .rb-post-grid { grid-template-columns: 1fr; }
+  .rb-append-grid { grid-template-columns: 1fr; }
   .raw-file-collapsible summary { flex-direction: column; align-items: flex-start; }
   .raw-file-preview { text-align: left; white-space: normal; }
 }
