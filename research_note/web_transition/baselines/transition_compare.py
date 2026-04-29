@@ -1182,26 +1182,181 @@ def load_reasoningbank_episode_trace(task_dir: Path) -> dict[str, Any] | None:
     return parsed if isinstance(parsed, dict) else None
 
 
-def render_episode_memory_cards(items: list[dict[str, Any]], highlight_ids: set[str] | None = None) -> str:
+def render_episode_memory_cards(
+    items: list[dict[str, Any]],
+    highlight_ids: set[str] | None = None,
+    *,
+    compact: bool = False,
+) -> str:
     highlight_ids = highlight_ids or set()
     cards = []
     for item in items:
         item_id = str(item.get("id") or "memory")
-        class_name = "rb-episode-memory-card is-highlighted" if item_id in highlight_ids else "rb-episode-memory-card"
+        class_names = ["rb-episode-memory-card"]
+        if item_id in highlight_ids:
+            class_names.append("is-highlighted")
+        if compact:
+            class_names.append("is-compact")
+        body = (
+            f"<p>{esc(str(item.get('description') or '—'))}</p>"
+            if compact
+            else f"""
+              <p>{esc(str(item.get("description") or "—"))}</p>
+              <div>{esc(str(item.get("content") or "—"))}</div>
+            """
+        )
         cards.append(
             f"""
-            <div class="{class_name}">
+            <div class="{' '.join(class_names)}">
               <div class="rb-memory-card-top">
                 <span class="snapshot-step">{esc(item_id)}</span>
                 {chip("retrieved", "teal") if item_id in highlight_ids else ""}
               </div>
               <strong>{esc(str(item.get("title") or "Memory item"))}</strong>
-              <p>{esc(str(item.get("description") or "—"))}</p>
-              <div>{esc(str(item.get("content") or "—"))}</div>
+              {body}
             </div>
             """
         )
     return "".join(cards) if cards else '<div class="rb-empty-state">No memory items yet.</div>'
+
+
+def episode_action_chain(episode: dict[str, Any]) -> list[dict[str, str]]:
+    steps = episode.get("steps", [])
+    if not isinstance(steps, list):
+        return []
+    chain = []
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        observation = step.get("observation", {})
+        observation = observation if isinstance(observation, dict) else {}
+        llm_output = step.get("llm_output", {})
+        llm_output = llm_output if isinstance(llm_output, dict) else {}
+        env_result = step.get("environment_result", {})
+        env_result = env_result if isinstance(env_result, dict) else {}
+        chain.append(
+            {
+                "label": str(step.get("label") or f"Step {step.get('step', '')}"),
+                "state": str(observation.get("state_id") or "state"),
+                "action": str(llm_output.get("action") or llm_output.get("selected_action") or "—"),
+                "next_state": str(env_result.get("next_state_id") or "—"),
+            }
+        )
+    return chain
+
+
+def render_action_chain(chain: list[dict[str, str]]) -> str:
+    if not chain:
+        return ""
+    items = []
+    for entry in chain:
+        items.append(
+            f"""
+            <div class="rb-chain-item">
+              <span>{esc(entry["label"])}</span>
+              <b>{esc(entry["state"])}</b>
+              <code>{esc(entry["action"])}</code>
+              <em>→ {esc(entry["next_state"])}</em>
+            </div>
+            """
+        )
+    return f'<div class="rb-chain">{"".join(items)}</div>'
+
+
+def render_previous_trajectory(previous_steps: list[dict[str, Any]]) -> str:
+    if not previous_steps:
+        return '<div class="rb-trajectory-empty">none yet. This is the first action turn.</div>'
+    entries = []
+    for prev in previous_steps:
+        if not isinstance(prev, dict):
+            continue
+        llm_output = prev.get("llm_output", {})
+        llm_output = llm_output if isinstance(llm_output, dict) else {}
+        env_result = prev.get("environment_result", {})
+        env_result = env_result if isinstance(env_result, dict) else {}
+        entries.append(
+            f"""
+            <li>
+              <b>{esc(str(prev.get("label") or f"Step {prev.get('step', '')}"))}</b>
+              <span>{esc(str(llm_output.get("action") or "—"))}</span>
+              <em>→ {esc(str(env_result.get("next_state_id") or "—"))}</em>
+            </li>
+            """
+        )
+    return f'<ol class="rb-trajectory-list">{"".join(entries)}</ol>'
+
+
+def render_reasoningbank_executive_summary(episode: dict[str, Any]) -> str:
+    initial_bank = episode.get("initial_bank", [])
+    initial_items = [item for item in initial_bank if isinstance(item, dict)] if isinstance(initial_bank, list) else []
+    steps = episode.get("steps", [])
+    step_count = len(steps) if isinstance(steps, list) else 0
+    extraction = episode.get("extraction", {})
+    extraction = extraction if isinstance(extraction, dict) else {}
+    extracted_items = extraction.get("items", [])
+    extracted_count = len(extracted_items) if isinstance(extracted_items, list) else 0
+    consolidation = episode.get("consolidation", {})
+    consolidation = consolidation if isinstance(consolidation, dict) else {}
+    before_count = consolidation.get("bank_before_count", len(initial_items))
+    after_count = consolidation.get("bank_after_count", len(initial_items) + extracted_count)
+    judge = episode.get("judge", {})
+    judge = judge if isinstance(judge, dict) else {}
+
+    summary_cards = [
+        (
+            "During action",
+            "LLM input",
+            "현재 화면 관측 + 후보 action + 이전 trajectory + retrieval된 memory item",
+            "memory bank는 여기서 업데이트되지 않고 읽히기만 한다.",
+        ),
+        (
+            "During action",
+            "LLM output",
+            "선택한 action + 선택 이유. 이후 환경이 다음 state를 반환한다.",
+            "각 step의 오른쪽 카드가 이 output과 transition이다.",
+        ),
+        (
+            "After episode",
+            "Memory write",
+            f"전체 trajectory + judge={judge.get('output', '—')}를 보고 {extracted_count}개 lesson을 추출한다.",
+            f"bank size: {before_count} → {after_count}",
+        ),
+    ]
+    cards = []
+    for phase, title, main, note in summary_cards:
+        cards.append(
+            f"""
+            <div class="rb-exec-card">
+              <span>{esc(phase)}</span>
+              <strong>{esc(title)}</strong>
+              <p>{esc(main)}</p>
+              <em>{esc(note)}</em>
+            </div>
+            """
+        )
+
+    return f"""
+      <section class="reasoningbank-exec">
+        <div class="section-label">Executive summary</div>
+        <div class="rb-exec-head">
+          <div>
+            <h2>ReasoningBank는 action 중에는 memory를 읽고, episode 후에만 memory를 쓴다.</h2>
+            <p>
+              이 페이지는 flight task 하나를 실제 episode처럼 펼쳐서, LLM에 무엇이 들어가고 무엇이 나오는지, 그리고 어떤 lesson이 최종 bank에 저장되는지 보여준다.
+            </p>
+          </div>
+          <div class="rb-exec-metrics">
+            <div><b>{step_count}</b><span>action turns</span></div>
+            <div><b>{before_count} → {after_count}</b><span>memory bank</span></div>
+            <div><b>{esc(str(judge.get("output") or "—"))}</b><span>judge result</span></div>
+          </div>
+        </div>
+        <div class="rb-exec-grid">
+          {''.join(cards)}
+        </div>
+        {render_action_chain(episode_action_chain(episode))}
+      </section>
+    """
 
 
 def render_episode_initial_bank(episode: dict[str, Any]) -> str:
@@ -1226,7 +1381,11 @@ def render_episode_initial_bank(episode: dict[str, Any]) -> str:
     """
 
 
-def render_episode_step(step: dict[str, Any], bank_by_id: dict[str, dict[str, Any]]) -> str:
+def render_episode_step(
+    step: dict[str, Any],
+    bank_by_id: dict[str, dict[str, Any]],
+    previous_steps: list[dict[str, Any]],
+) -> str:
     observation = step.get("observation", {})
     observation = observation if isinstance(observation, dict) else {}
     visible_elements = observation.get("visible_elements", [])
@@ -1262,7 +1421,15 @@ def render_episode_step(step: dict[str, Any], bank_by_id: dict[str, dict[str, An
         "observation": observation,
         "retrieved_memory": retrieved_items,
         "candidate_actions": candidate_actions,
-        "trajectory_so_far": "included from previous action turns",
+        "trajectory_so_far": [
+            {
+                "step": prev.get("step"),
+                "action": (prev.get("llm_output", {}) if isinstance(prev.get("llm_output", {}), dict) else {}).get("action"),
+                "next_state": (prev.get("environment_result", {}) if isinstance(prev.get("environment_result", {}), dict) else {}).get("next_state_id"),
+            }
+            for prev in previous_steps
+            if isinstance(prev, dict)
+        ],
     }
     raw_output = {
         "llm_output": llm_output,
@@ -1280,7 +1447,7 @@ def render_episode_step(step: dict[str, Any], bank_by_id: dict[str, dict[str, An
           <div class="meta">policy LLM turn</div>
         </div>
         <div class="rb-step-note">
-          이 단계에서 LLM에게 들어가는 것은 현재 관측, 후보 action, 지금까지의 trajectory, 그리고 retrieval된 memory다. 새 memory는 아직 추가되지 않는다.
+          LLM input은 왼쪽 4가지다. 현재 관측만 보는 게 아니라, 이전 action 이력과 retrieval된 memory lesson을 같이 보고 다음 action을 고른다.
         </div>
         <div class="rb-step-io-grid">
           <section class="rb-step-panel">
@@ -1303,9 +1470,13 @@ def render_episode_step(step: dict[str, Any], bank_by_id: dict[str, dict[str, An
                 <div>{esc(join_preview([str(item) for item in visible_elements], limit=5))}</div>
               </div>
               <div class="rb-step-field full">
+                <span>Trajectory so far</span>
+                {render_previous_trajectory(previous_steps)}
+              </div>
+              <div class="rb-step-field full">
                 <span>Retrieved memory</span>
                 <div class="rb-inline-memory-list">
-                  {render_episode_memory_cards(retrieved_items, set(retrieved_ids))}
+                  {render_episode_memory_cards(retrieved_items, set(retrieved_ids), compact=True)}
                 </div>
               </div>
               <div class="rb-step-field full">
@@ -1403,6 +1574,8 @@ def render_episode_post_episode(episode: dict[str, Any]) -> str:
 
     raw_extraction = {
         "input": extraction.get("input"),
+        "trajectory": episode_action_chain(episode),
+        "judge": judge,
         "output_format": extraction.get("output_format"),
         "items": extracted_items,
     }
@@ -1411,13 +1584,13 @@ def render_episode_post_episode(episode: dict[str, Any]) -> str:
       <article class="rb-episode-card rb-post-episode-card">
         <div class="rb-step-topline">
           <div>
-            <div class="raw-step-step">After episode</div>
-            <div class="raw-step-title">Judge → extraction → consolidation</div>
+            <div class="raw-step-step">After episode · memory write</div>
+            <div class="raw-step-title">Judge → extract lessons → append to bank</div>
           </div>
           <div class="meta">{esc(str(consolidation.get("bank_before_count") or 0))} → {esc(str(consolidation.get("bank_after_count") or len(final_bank)))} items</div>
         </div>
         <div class="rb-step-note">
-          여기서부터 bank가 실제로 변한다. 전체 trajectory와 성공/실패 signal을 보고 reusable lesson을 뽑은 다음, 다음 task에서 retrieval될 수 있도록 bank에 추가한다.
+          여기서부터 bank가 실제로 변한다. 위 3개 action turn 전체를 하나의 trajectory로 보고, 성공/실패 signal을 붙여 reusable lesson을 뽑은 뒤 다음 task에서 retrieval될 수 있도록 bank에 추가한다.
         </div>
         <div class="rb-post-grid">
           <section class="rb-step-panel">
@@ -1449,8 +1622,12 @@ def render_episode_post_episode(episode: dict[str, Any]) -> str:
                 <div>{esc(str(extraction.get("input") or "—"))}</div>
               </div>
               <div class="rb-step-field">
-                <span>Output count</span>
-                <div>{len(extracted_items)} memory item(s)</div>
+                <span>Trajectory summary</span>
+                {render_action_chain(episode_action_chain(episode))}
+              </div>
+              <div class="rb-step-field full">
+                <span>Output</span>
+                <div>{len(extracted_items)} reusable memory item(s) in Title / Description / Content format</div>
               </div>
             </div>
           </section>
@@ -1489,17 +1666,20 @@ def render_reasoningbank_episode_flow(episode: dict[str, Any]) -> str:
     initial_items = [item for item in initial_bank if isinstance(item, dict)] if isinstance(initial_bank, list) else []
     bank_by_id = {str(item.get("id")): item for item in initial_items}
     steps = episode.get("steps", [])
-    step_cards = [
-        render_episode_step(step, bank_by_id)
-        for step in steps
-        if isinstance(step, dict)
-    ] if isinstance(steps, list) else []
+    step_cards: list[str] = []
+    previous_steps: list[dict[str, Any]] = []
+    if isinstance(steps, list):
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            step_cards.append(render_episode_step(step, bank_by_id, previous_steps))
+            previous_steps.append(step)
 
     return f"""
       <section class="reasoningbank-step-list">
-        <div class="section-label">Step-by-step captures</div>
+        <div class="section-label">Actual episode I/O</div>
         <p class="baseline-intro">
-          아래 흐름이 실제 ReasoningBank episode 단위다. action step에서는 bank를 read-only로 retrieval해서 LLM input에 넣고, memory bank growth는 episode가 끝난 뒤 extraction/consolidation에서 한 번에 일어난다.
+          아래만 보면 된다. 각 action turn은 왼쪽이 LLM input, 오른쪽이 LLM output과 환경 transition이다. memory write는 마지막 post-episode 카드에서만 발생한다.
         </p>
         <div class="stack rb-episode-stack">
           {render_episode_initial_bank(episode)}
@@ -1654,8 +1834,12 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
         return render_compare_page(compare_root, group_bundles([task_dir]))
 
     step_labels = [f"Step {idx}" for idx in range(1, len(step_dirs) + 1)]
-    method_map = render_reasoningbank_method_map(bundle, compare_root)
     episode_trace = load_reasoningbank_episode_trace(task_dir)
+    method_map = (
+        render_reasoningbank_executive_summary(episode_trace)
+        if episode_trace is not None
+        else render_reasoningbank_method_map(bundle, compare_root)
+    )
     task_snapshot = render_task_snapshot_panel(bundle, compare_root)
     memory_items = reasoningbank_memory_items(bundle)
     result_json = read_text_or_placeholder(task_dir / "result.json")
@@ -1688,14 +1872,15 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
     </section>
         """
     task_name = bundle.get("task_name", "Task")
-    task_text = str(bundle.get("payload", {}).get("task", ""))
+    display_task_name = "Flight booking task" if str(task_name).lower() == "flight" else str(task_name)
+    task_text = str((episode_trace or {}).get("task") or bundle.get("payload", {}).get("task") or task_name)
     source_label_text = compact_source_label(bundle)
     return f"""<!doctype html>
 <html lang="ko">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>{esc(task_name)} · ReasoningBank</title>
+  <title>{esc(display_task_name)} · ReasoningBank</title>
   <style>{CSS}
 {COMPARE_CSS}</style>
 </head>
@@ -1704,8 +1889,8 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
     <header class="hero">
       <div>
         <div class="kicker">ReasoningBank focus</div>
-        <h1>{esc(task_name)}</h1>
-        <p>{esc(task_text)}</p>
+        <h1>{esc(display_task_name)}</h1>
+        <p>{esc(task_text)} · action-time retrieval, post-episode memory update</p>
         <div class="metric-row">
           <div class="metric"><div class="value">{len(step_dirs)}</div><div class="label">steps</div></div>
           <div class="metric"><div class="value">{esc(source_label_text)}</div><div class="label">source</div></div>
@@ -1714,14 +1899,14 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
       <div style="min-width:280px;max-width:460px">
         <div class="metric-row" style="margin-top:0">
           <div class="metric" style="flex:1 1 100%">
-            <div class="label">What this page shows</div>
+            <div class="label">핵심</div>
             <div class="small" style="color:#e2e8f0;line-height:1.7">
-              초기 bank가 prompt에 어떻게 들어가고, action이 어떻게 선택되며, episode가 끝난 뒤 memory가 어떻게 append되는지 보여준다.
+              action 중에는 memory를 읽어서 action을 고르고, episode가 끝난 뒤에만 lesson을 추출해 bank에 쓴다.
             </div>
           </div>
           <div class="metric" style="flex:1 1 100%">
-            <div class="label">Stored files</div>
-            <div class="small" style="color:#e2e8f0;line-height:1.7">{esc(str(task_dir))}</div>
+            <div class="label">읽는 순서</div>
+            <div class="small" style="color:#e2e8f0;line-height:1.7">Executive summary → Actual episode I/O → Appendix raw files</div>
           </div>
         </div>
       </div>
@@ -1731,13 +1916,13 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
 
     {step_section}
 
-    <details style="margin-top:16px">
-      <summary>Task snapshot / bundle raw files</summary>
+    <details class="rb-appendix">
+      <summary>Appendix: exact stored files</summary>
       <div class="task-section reasoningbank-single reasoningbank-summary-stack" style="margin-top:12px">
         <div class="task-head">
           <div>
             <div class="section-label">Task snapshot</div>
-            <h2>{esc(task_name)}</h2>
+            <h2>{esc(display_task_name)}</h2>
             <div class="small">{esc(task_text)}</div>
           </div>
           <div class="chips">
@@ -3330,6 +3515,141 @@ body {
   word-break: break-word;
 }
 
+.reasoningbank-exec {
+  margin-top: 16px;
+  background: linear-gradient(135deg, rgba(255,255,255,0.92), rgba(236,253,245,0.82));
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  padding: 18px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(12px);
+}
+
+.rb-exec-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.44fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.rb-exec-head h2 {
+  margin: 0;
+  font-size: clamp(22px, 3vw, 34px);
+  line-height: 1.08;
+  letter-spacing: -0.04em;
+  color: #0f172a;
+}
+
+.rb-exec-head p {
+  margin: 10px 0 0;
+  color: #475569;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.rb-exec-metrics {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.rb-exec-metrics div,
+.rb-exec-card {
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.88);
+  padding: 12px;
+}
+
+.rb-exec-metrics b {
+  display: block;
+  font-size: 22px;
+  line-height: 1.1;
+  color: #0f172a;
+}
+
+.rb-exec-metrics span,
+.rb-exec-card span {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.rb-exec-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.rb-exec-card strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 16px;
+  line-height: 1.35;
+  color: #0f172a;
+}
+
+.rb-exec-card p {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #1e293b;
+}
+
+.rb-exec-card em {
+  display: block;
+  margin-top: 8px;
+  color: #0f766e;
+  font-size: 12px;
+  line-height: 1.5;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.rb-chain {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.rb-chain-item {
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.04);
+  padding: 12px;
+}
+
+.rb-chain-item span,
+.rb-chain-item em {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-style: normal;
+}
+
+.rb-chain-item b,
+.rb-chain-item code {
+  display: block;
+  margin-top: 5px;
+  color: #0f172a;
+  overflow-wrap: anywhere;
+}
+
+.rb-chain-item code {
+  font-size: 12px;
+  line-height: 1.45;
+  color: #0f766e;
+}
+
 .rb-episode-stack {
   gap: 16px;
 }
@@ -3357,6 +3677,10 @@ body {
   border-radius: 18px;
   background: linear-gradient(180deg, #fff, #f8fafc);
   padding: 12px;
+}
+
+.rb-episode-memory-card.is-compact {
+  padding: 10px;
 }
 
 .rb-episode-memory-card.is-highlighted,
@@ -3396,10 +3720,47 @@ body {
   overflow-wrap: anywhere;
 }
 
+.rb-episode-memory-card.is-compact div {
+  display: none;
+}
+
 .rb-inline-memory-list {
   display: grid;
   grid-template-columns: 1fr;
   gap: 8px;
+}
+
+.rb-trajectory-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rb-trajectory-list li,
+.rb-trajectory-empty {
+  border: 1px dashed rgba(15, 23, 42, 0.14);
+  border-radius: 14px;
+  background: #f8fafc;
+  padding: 9px 10px;
+}
+
+.rb-trajectory-list b,
+.rb-trajectory-list span,
+.rb-trajectory-list em,
+.rb-trajectory-empty {
+  display: block;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #334155;
+  font-style: normal;
+  overflow-wrap: anywhere;
+}
+
+.rb-trajectory-list b {
+  color: #0f172a;
 }
 
 .rb-inline-memory-list .rb-episode-memory-card {
@@ -3989,6 +4350,9 @@ pre {
   .raw-step-grid { grid-template-columns: 1fr; }
   .step-snapshot-layout { grid-template-columns: 1fr; }
   .step-snapshot-head { flex-direction: column; }
+  .rb-exec-head { grid-template-columns: 1fr; }
+  .rb-exec-grid { grid-template-columns: 1fr; }
+  .rb-chain { grid-template-columns: 1fr; }
   .rb-step-row { grid-template-columns: 1fr; }
   .rb-step-media { position: static; }
   .rb-step-summary { grid-template-columns: 1fr; }
