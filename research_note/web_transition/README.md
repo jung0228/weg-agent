@@ -33,6 +33,53 @@ task 폴더에는 보통 아래가 들어간다.
 - `viz_io.html`
 - `S1/`, `S2/`, ...
 
+## Workspace Map
+
+### 이 허브 안
+
+```text
+research_note/web_transition/
+  README.md
+  notes/
+    WEB_TRANSITION_BASELINE_3X3_SELECTION.md
+    WEB_TRANSITION_BASELINE_CANDIDATES.md
+    WEB_TRANSITION_BASELINE_IO_EXAMPLES.md
+    WEB_TRANSITION_MEMORY_MEETING_BRIEF.md
+    WEB_TRANSITION_MEMORY_RESEARCH_PLAN.md
+    WEB_TRANSITION_REPO_AND_API_AUDIT.md
+    WEB_TRANSITION_TOMORROW_CHECKLIST.md
+  baselines/
+    api_transition_demo.py
+    baseline_profiles.py
+    letsur_transition_demo.py
+    local_transition_dry_run.py
+    package_transition_results.py
+```
+
+### 로컬 결과물
+
+```text
+/Users/jhw/Desktop/web/hyeonwoo/eval_results/
+  letsur/
+    gemini-3-flash-preview/
+      20260429_164258/
+        taskflight_0/
+        taskshopping_0/
+```
+
+### 아직 repo에 안 넣는 것
+
+- `research_note/baselines/output/*.json` 원본 결과 파일
+- `eval_results/` 전체 run tree
+- GPU/server에서 돌릴 official reproduction 결과
+
+### 참고로 같이 쓰는 기존 폴더
+
+- `knowledge/`: 기존 Danawa/agent 작업의 지식 캐시
+- `walt-tools/`: 기존 도구 자동 생성 결과
+
+web transition 연구 자체는 `research_note/web_transition/`를 기준점으로 보면 된다.
+
 ## 비교 baseline
 
 | baseline | 역할 | stored unit | GPU |
