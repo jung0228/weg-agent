@@ -86,28 +86,25 @@ def build_episode() -> dict[str, Any]:
                 {"id": "a3", "action": "click('e4')", "surface": "Open sort menu"},
             ],
             "action_space_builder": {
-                "module": "Web environment action-space builder",
-                "ownership": "environment / browser wrapper, not the ReasoningBank memory module",
-                "input": "raw browser state or accessibility tree for flight_results",
-                "method": "enumerate visible interactive elements, keep click/selector actions that can advance the task, and attach stable element ids",
-                "output": "candidate_actions a1-a3",
+                "module": "BrowserGym action-space prompt",
+                "ownership": "GitHub: WebArena/agents/legacy/dynamic_prompting.py::ActionSpace",
+                "input": "flattened accessibility tree / HTML observation for flight_results",
+                "method": "HighLevelActionSet describes legal action syntax and validates the LLM action with to_python_code; the repo does not emit a candidate_actions JSON list.",
+                "output": "allowed action space in prompt; demo candidates below are a visualization inferred from visible bid elements",
             },
             "memory_retriever": {
-                "module": "ReasoningBank memory retriever",
-                "ownership": "ReasoningBank pre-policy retrieval module",
-                "input": "task + state summary + candidate action affordances + seeded memory bank",
+                "module": "ReasoningBank memory selection",
+                "ownership": "GitHub: WebArena/run.py calls select_memory before the episode and writes memory_path",
+                "input": "WebArena task intent + reasoning_bank JSONL + embedding cache",
                 "query": "cheapest flight results page with organic card, sponsored deal, and in-page transition risk",
-                "method": "rank memory items by semantic relevance to the current task/state, then inject top-k into the policy prompt",
-                "scores": [
-                    {"id": "M0-1", "score": 0.91, "reason": "organic result vs sponsored detour directly matches the current page"},
-                    {"id": "M0-2", "score": 0.78, "reason": "selecting a fare may open a panel without URL navigation"},
-                ],
-                "output": "retrieved_memory M0-1, M0-2",
+                "method": "select_memory(n=1) ranks prior task embeddings, flattens the selected task's memory_items, and agent.py appends that text to the system prompt every step",
+                "scores": [],
+                "output": "selected_memory from memory_path; demo visualizes it as M0-1, M0-2",
             },
-            "llm_input_summary": "task + flight_results observation + retrieved memory M0-1/M0-2 + candidate actions",
+            "llm_input_summary": "task + AXTree/HTML observation + action-space prompt + selected_memory text + history",
             "llm_output": {
                 "thought": (
-                    "The cheapest organic result directly matches the task. The retrieved memory says to prefer primary result cards "
+                    "The cheapest organic result directly matches the task. The selected memory says to prefer primary result cards "
                     "and to accept in-page fare panels as progress."
                 ),
                 "selected_action": "a1",
@@ -122,7 +119,7 @@ def build_episode() -> dict[str, Any]:
             "bank_delta": {
                 "before": 2,
                 "after": 2,
-                "note": "No new memory is appended during the episode; the policy only reads retrieved memory.",
+                "note": "No new memory is appended during the episode; the policy only reads the selected memory text.",
             },
         },
         {
@@ -139,32 +136,29 @@ def build_episode() -> dict[str, Any]:
                     "e7 Close panel",
                 ],
             },
-            "retrieved_memory_ids": ["M0-2"],
+            "retrieved_memory_ids": ["M0-1", "M0-2"],
             "candidate_actions": [
                 {"id": "a4", "action": "click('e5')", "surface": "Continue"},
                 {"id": "a5", "action": "click('e6')", "surface": "Baggage details"},
                 {"id": "a6", "action": "click('e7')", "surface": "Close panel"},
             ],
             "action_space_builder": {
-                "module": "Web environment action-space builder",
-                "ownership": "environment / browser wrapper, not the ReasoningBank memory module",
-                "input": "raw browser state or accessibility tree for fare_detail_panel",
-                "method": "enumerate visible panel controls and convert them into legal click actions",
-                "output": "candidate_actions a4-a6",
+                "module": "BrowserGym action-space prompt",
+                "ownership": "GitHub: WebArena/agents/legacy/dynamic_prompting.py::ActionSpace",
+                "input": "flattened accessibility tree / HTML observation for fare_detail_panel",
+                "method": "HighLevelActionSet describes legal action syntax and validates the LLM action with to_python_code; the repo does not emit a candidate_actions JSON list.",
+                "output": "allowed action space in prompt; demo candidates below are a visualization inferred from visible bid elements",
             },
             "memory_retriever": {
-                "module": "ReasoningBank memory retriever",
-                "ownership": "ReasoningBank pre-policy retrieval module",
-                "input": "task + fare-detail panel observation + previous action trajectory + seeded memory bank",
+                "module": "ReasoningBank memory selection",
+                "ownership": "GitHub: selected once before the episode, not re-retrieved at every step",
+                "input": "same memory_path selected before the run",
                 "query": "selected fare detail panel with continue control and URL may not change",
-                "method": "retrieve the memory item whose description/content best matches the current state transition ambiguity",
-                "scores": [
-                    {"id": "M0-2", "score": 0.86, "reason": "panel/form progress should be verified by visible UI state"},
-                    {"id": "M0-1", "score": 0.39, "reason": "organic-result lesson was already used and is less relevant inside the detail panel"},
-                ],
-                "output": "retrieved_memory M0-2",
+                "method": "agent.py appends memory_path contents to the system prompt on each get_action call",
+                "scores": [],
+                "output": "same selected_memory text remains available to the policy LLM",
             },
-            "llm_input_summary": "task + fare_detail_panel observation + retrieved memory M0-2 + current trajectory",
+            "llm_input_summary": "task + AXTree/HTML observation + action-space prompt + selected_memory text + history",
             "llm_output": {
                 "thought": (
                     "The selected fare is still the cheapest. Continuing advances the booking funnel, while baggage details and close controls "
@@ -200,32 +194,29 @@ def build_episode() -> dict[str, Any]:
                     "e11 Back to results",
                 ],
             },
-            "retrieved_memory_ids": ["M0-2"],
+            "retrieved_memory_ids": ["M0-1", "M0-2"],
             "candidate_actions": [
                 {"id": "a7", "action": "click('e9')", "surface": "Continue as guest"},
                 {"id": "a8", "action": "click('e10')", "surface": "Sign in"},
                 {"id": "a9", "action": "click('e11')", "surface": "Back to results"},
             ],
             "action_space_builder": {
-                "module": "Web environment action-space builder",
-                "ownership": "environment / browser wrapper, not the ReasoningBank memory module",
-                "input": "raw browser state or accessibility tree for passenger_info",
-                "method": "enumerate visible form/navigation controls and expose safe actions, while policy decides whether to stop",
-                "output": "candidate_actions a7-a9 plus finish action available to the agent",
+                "module": "BrowserGym action-space prompt",
+                "ownership": "GitHub: WebArena/agents/legacy/dynamic_prompting.py::ActionSpace",
+                "input": "flattened accessibility tree / HTML observation for passenger_info",
+                "method": "HighLevelActionSet describes legal action syntax, including chat/send-message actions when enabled; the policy decides whether to stop",
+                "output": "allowed action space in prompt; demo candidates below are a visualization inferred from visible bid elements",
             },
             "memory_retriever": {
-                "module": "ReasoningBank memory retriever",
-                "ownership": "ReasoningBank pre-policy retrieval module",
-                "input": "task + passenger-info observation + current trajectory + seeded memory bank",
+                "module": "ReasoningBank memory selection",
+                "ownership": "GitHub: selected once before the episode, not re-retrieved at every step",
+                "input": "same memory_path selected before the run",
                 "query": "traveler information form reached after selecting cheapest fare; private data boundary",
-                "method": "retrieve progress-verification memory; no private-data memory exists yet, so the policy must infer the safe stop boundary",
-                "scores": [
-                    {"id": "M0-2", "score": 0.81, "reason": "traveler form is a visible UI-state progress signal"},
-                    {"id": "M0-1", "score": 0.34, "reason": "primary-result selection is no longer the active decision"},
-                ],
-                "output": "retrieved_memory M0-2",
+                "method": "agent.py appends memory_path contents to the system prompt on each get_action call",
+                "scores": [],
+                "output": "same selected_memory text remains available to the policy LLM",
             },
-            "llm_input_summary": "task + passenger_info observation + retrieved memory M0-2 + current trajectory",
+            "llm_input_summary": "task + AXTree/HTML observation + action-space prompt + selected_memory text + history",
             "llm_output": {
                 "thought": (
                     "The task is satisfied up to the booking form without entering personal or payment data. The correct stopping point is to report "
@@ -281,18 +272,18 @@ def build_episode() -> dict[str, Any]:
         "initial_bank": initial_bank,
         "pre_policy_modules": [
             {
-                "name": "Action-space builder",
-                "role": "turn raw browser state into candidate_actions",
-                "input": "DOM/accessibility tree + current observation",
-                "output": "legal action list such as click('e1'), click('e5')",
-                "note": "This is usually provided by the web-agent environment wrapper rather than ReasoningBank itself.",
+                "name": "Action-space prompt",
+                "role": "describe legal BrowserGym actions and validate the generated action",
+                "input": "AXTree/HTML observation + HighLevelActionSet(action_space='bid' by default)",
+                "output": "an action string generated by the LLM and checked by to_python_code",
+                "note": "The GitHub repo does not materialize a candidate_actions JSON list; the list shown in this viewer is a human-readable visualization.",
             },
             {
-                "name": "Memory retriever",
-                "role": "turn current task/state into retrieved_memory",
-                "input": "task + observation summary + trajectory_so_far + memory bank",
-                "output": "top-k memory items inserted into the policy prompt",
-                "note": "This is the ReasoningBank-specific pre-policy step.",
+                "name": "Memory selector",
+                "role": "select relevant prior memory before the episode",
+                "input": "current task intent + reasoning_bank JSONL + embedding cache",
+                "output": "memory_path text appended to the agent system prompt every step",
+                "note": "The GitHub WebArena path selects memory once before the run, not dynamically at every step.",
             },
         ],
         "steps": steps,
@@ -346,12 +337,12 @@ def write_episode(task_dir: Path) -> None:
     write_json(
         task_dir / "interact_messages.json",
         [
-            {"role": "system", "content": "ReasoningBank episode demo with retrieved memory and post-episode memory extraction."},
+            {"role": "system", "content": "ReasoningBank episode demo with selected memory_path text and post-episode memory extraction."},
             {"role": "user", "content": episode["task"]},
             {"role": "assistant", "content": json.dumps(episode["steps"], ensure_ascii=False)},
         ],
     )
-    write_text(task_dir / "system_prompt.txt", "ReasoningBank policy prompt with retrieved memory items injected before each action.\n")
+    write_text(task_dir / "system_prompt.txt", "ReasoningBank policy prompt with selected memory_path contents injected into the system message.\n")
     write_text(task_dir / "user_prompt.txt", json.dumps({"task": episode["task"], "initial_bank": episode["initial_bank"]}, ensure_ascii=False, indent=2))
     write_text(task_dir / "assistant_output.txt", json.dumps(episode, ensure_ascii=False, indent=2))
     write_text(task_dir / "reasoningbank_memory_items.md", memory_markdown(episode["extraction"]["items"]))
@@ -371,10 +362,10 @@ def write_episode(task_dir: Path) -> None:
                     "memory_retriever": step["memory_retriever"],
                 },
                 "observation": step["observation"],
-                "retrieved_memory": [
+                "selected_memory_from_memory_path": [
                     item for item in episode["initial_bank"] if item["id"] in step["retrieved_memory_ids"]
                 ],
-                "candidate_actions": step["candidate_actions"],
+                "visualization_candidate_actions_not_repo_json": step["candidate_actions"],
                 "trajectory_so_far": [
                     {
                         "step": prev["step"],
@@ -405,7 +396,7 @@ def write_episode(task_dir: Path) -> None:
                 [
                     f"task: {episode['task']}",
                     f"state: {step['observation']['state_id']}",
-                    f"retrieved_memory: {', '.join(step['retrieved_memory_ids'])}",
+                    f"selected_memory_from_memory_path: {', '.join(step['retrieved_memory_ids'])}",
                     f"selected_action: {step['llm_output']['action']}",
                     f"transition: {step['environment_result']['transition']}",
                     f"verification: {step['environment_result']['verification']}",

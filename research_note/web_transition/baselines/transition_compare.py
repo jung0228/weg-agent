@@ -1300,7 +1300,7 @@ def render_retrieval_scores(scores: list[Any]) -> str:
             </li>
             """
         )
-    return f'<ol class="rb-score-list">{"".join(rows)}</ol>' if rows else '<div class="rb-trajectory-empty">No score trace recorded.</div>'
+    return f'<ol class="rb-score-list">{"".join(rows)}</ol>' if rows else ""
 
 
 def render_pre_policy_modules(step: dict[str, Any]) -> str:
@@ -1315,8 +1315,8 @@ def render_pre_policy_modules(step: dict[str, Any]) -> str:
       <div class="rb-prepolicy-grid">
         <section class="rb-prepolicy-card">
           <div class="rb-prepolicy-head">
-            <span class="rb-phase-kicker">Pre-policy module 1</span>
-            <strong>Candidate action builder</strong>
+            <span class="rb-phase-kicker">GitHub component 1</span>
+            <strong>Action-space prompt</strong>
           </div>
           <p class="rb-prepolicy-note">{esc(str(action_module.get("ownership") or "environment / browser wrapper"))}</p>
           <div class="rb-module-io">
@@ -1327,8 +1327,8 @@ def render_pre_policy_modules(step: dict[str, Any]) -> str:
         </section>
         <section class="rb-prepolicy-card">
           <div class="rb-prepolicy-head">
-            <span class="rb-phase-kicker">Pre-policy module 2</span>
-            <strong>Memory retriever</strong>
+            <span class="rb-phase-kicker">GitHub component 2</span>
+            <strong>Memory selector / prompt injection</strong>
           </div>
           <p class="rb-prepolicy-note">{esc(str(memory_module.get("ownership") or "ReasoningBank retrieval module"))}</p>
           <div class="rb-module-io">
@@ -1339,7 +1339,7 @@ def render_pre_policy_modules(step: dict[str, Any]) -> str:
           {render_retrieval_scores(scores)}
         </section>
       </div>
-      <div class="rb-module-flow-note">이 두 모듈의 output이 아래 LLM input 카드의 <b>Candidate actions</b>와 <b>Retrieved memory</b>로 들어간다.</div>
+      <div class="rb-module-flow-note">GitHub 기준으로는 <b>candidate_actions JSON</b>이 따로 저장되는 것이 아니라 action-space description과 AXTree가 prompt에 들어간다. 아래 candidate list는 발표용으로 AXTree/action space에서 사람이 읽기 쉽게 재구성한 것이다.</div>
     """
 
 
@@ -1362,20 +1362,20 @@ def render_reasoningbank_executive_summary(episode: dict[str, Any]) -> str:
     summary_cards = [
         (
             "Before LLM",
-            "Action-space builder",
-            "DOM/accessibility tree에서 클릭/입력 가능한 element를 뽑아 candidate_actions를 만든다.",
-            "웹 환경 wrapper 쪽 책임이다.",
+            "Action-space prompt",
+            "AXTree/HTML observation과 BrowserGym HighLevelActionSet 설명을 prompt에 넣는다.",
+            "GitHub에는 candidate_actions JSON 모듈이 없다.",
         ),
         (
-            "Before LLM",
-            "Memory retriever",
-            "task + observation + trajectory를 query로 만들어 memory bank에서 관련 lesson을 top-k로 찾는다.",
-            "ReasoningBank의 action-time retrieval 단계다.",
+            "Before episode",
+            "Memory selector",
+            "task intent로 reasoning_bank JSONL을 검색해 memory_path를 만들고, 이 text를 매 step system prompt에 붙인다.",
+            "GitHub WebArena path는 step마다 재검색하지 않는다.",
         ),
         (
             "During action",
             "Policy LLM",
-            "현재 관측 + 이전 trajectory + candidate_actions + retrieved_memory를 보고 action을 고른다.",
+            "AXTree/HTML observation + action-space prompt + selected memory_path text + history를 보고 action string을 생성한다.",
             "이때 memory bank는 업데이트되지 않고 읽히기만 한다.",
         ),
         (
@@ -1490,8 +1490,8 @@ def render_episode_step(
         },
         "task": step.get("task"),
         "observation": observation,
-        "retrieved_memory": retrieved_items,
-        "candidate_actions": candidate_actions,
+        "selected_memory_from_memory_path": retrieved_items,
+        "visualization_candidate_actions_not_repo_json": candidate_actions,
         "trajectory_so_far": [
             {
                 "step": prev.get("step"),
@@ -1518,14 +1518,14 @@ def render_episode_step(
           <div class="meta">policy LLM turn</div>
         </div>
         <div class="rb-step-note">
-          policy LLM 앞에는 두 단계가 있다. 먼저 환경 wrapper가 가능한 action을 만들고, ReasoningBank retriever가 관련 memory를 찾은 뒤, 둘을 합쳐 LLM prompt를 구성한다.
+          GitHub 구현 기준으로는 LLM 앞에 AXTree/HTML observation, action-space description, history, 그리고 episode 시작 전에 선택된 memory_path text가 들어간다. 아래 candidate list는 repo artifact가 아니라 이해를 위한 재구성이다.
         </div>
         {render_pre_policy_modules(step)}
         <div class="rb-step-io-grid">
           <section class="rb-step-panel">
             <div class="rb-step-panel-head">
               <span class="rb-phase-kicker">Input to LLM</span>
-              <span class="meta">retrieval + prompt packet</span>
+              <span class="meta">GitHub-style prompt packet</span>
             </div>
             <div class="rb-step-panel-title">{esc(str(step.get("llm_input_summary") or "task + observation + memory + candidates"))}</div>
             <div class="rb-step-panel-grid">
@@ -1546,13 +1546,13 @@ def render_episode_step(
                 {render_previous_trajectory(previous_steps)}
               </div>
               <div class="rb-step-field full">
-                <span>Retrieved memory</span>
+                <span>Selected memory injected from memory_path</span>
                 <div class="rb-inline-memory-list">
                   {render_episode_memory_cards(retrieved_items, set(retrieved_ids), compact=True)}
                 </div>
               </div>
               <div class="rb-step-field full">
-                <span>Candidate actions</span>
+                <span>Visualization-only candidate actions</span>
                 <ol class="rb-candidate-list">{''.join(candidate_rows)}</ol>
               </div>
             </div>
@@ -1751,7 +1751,7 @@ def render_reasoningbank_episode_flow(episode: dict[str, Any]) -> str:
       <section class="reasoningbank-step-list">
         <div class="section-label">Actual episode I/O</div>
         <p class="baseline-intro">
-          아래만 보면 된다. 각 action turn은 왼쪽이 LLM input, 오른쪽이 LLM output과 환경 transition이다. memory write는 마지막 post-episode 카드에서만 발생한다.
+          GitHub 구현에 맞춰 보면, 각 action turn은 AXTree/HTML observation + action-space prompt + selected memory text를 받아 action string을 생성한다. 명시적인 candidate_actions JSON은 없으므로 아래 후보 목록은 발표용 재구성이다.
         </p>
         <div class="stack rb-episode-stack">
           {render_episode_initial_bank(episode)}
@@ -3800,6 +3800,10 @@ body {
   margin: 10px 0 0;
   padding: 0;
   list-style: none;
+}
+
+.rb-score-list:empty {
+  display: none;
 }
 
 .rb-score-list li {
