@@ -1460,7 +1460,7 @@ reasoning_bank.jsonl entry =
           </div>
           ''' for label, text in cards)}
         </div>
-        <details class="baseline-overview-example">
+        <details class="baseline-overview-example"{' open' if baseline == 'reasoningbank' else ''}>
           <summary>{esc(item["example_label"])}</summary>
           <pre>{esc(item["example"])}</pre>
         </details>
@@ -1723,7 +1723,6 @@ f.write(json.dumps({"memory_items": generated_memory_item, ...}) + "\\n")""",
     return f"""
       <section class="reasoningbank-github-io">
         <div class="section-label">GitHub-reference raw I/O</div>
-        {render_baseline_memory_overview("reasoningbank")}
         <p class="baseline-intro">
           아래는 실제 ReasoningBank GitHub WebArena 경로를 기준으로 한 input/output이다. 접는 글을 열면 각 단계의 raw input, 코드 위치, output을 그대로 볼 수 있다.
         </p>
@@ -2970,7 +2969,11 @@ def render_model_card(bundle: dict[str, Any], compare_root: Path) -> str:
     github_raw_io = render_memory_baseline_github_raw_io(bundle)
 
     if baseline_name == "reasoningbank":
-        github_raw_io = render_baseline_memory_overview("reasoningbank")
+        episode_trace = load_reasoningbank_episode_trace(task_dir)
+        github_raw_io = (
+            render_baseline_memory_overview("reasoningbank")
+            + (render_github_raw_io_reference(episode_trace) if episode_trace is not None else "")
+        )
         detail_body = render_reasoningbank_focus(bundle, compare_root)
     else:
         detail_body = render_raw_step_gallery(bundle, compare_root)
