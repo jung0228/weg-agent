@@ -1460,7 +1460,7 @@ reasoning_bank.jsonl entry =
           </div>
           ''' for label, text in cards)}
         </div>
-        <details class="baseline-overview-example"{' open' if baseline == 'reasoningbank' else ''}>
+        <details class="baseline-overview-example"{' open' if baseline in {'reasoningbank', 'awm'} else ''}>
           <summary>{esc(item["example_label"])}</summary>
           <pre>{esc(item["example"])}</pre>
         </details>
@@ -2106,7 +2106,7 @@ memory += random.sample(concrete_examples, min(args.retrieve_top_k, len(concrete
                 },
             },
             {
-                "title": "3. Build workflow-guided policy prompt",
+                "title": "3. Build workflow-guided API prompt packet",
                 "source": "mind2web/memory.py::eval_sample",
                 "input": {
                     "current_task": task,
@@ -2128,8 +2128,30 @@ query.append({
 
 message = sys_message + demo_message + query""",
                 "output": {
-                    "_note": "This is the actual message list shape sent to generate_response(...).",
-                    "message": [
+                    "_note": "This is the actual OpenAI chat.completions.create payload shape used by generate_response(...).",
+                    "api_request": {
+                        "model": "args.model",
+                        "temperature": "args.temperature",
+                        "stop_tokens": ["Task:", "obs:"],
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": "You are a large language model trained to navigate the web. Output the next action and wait for the next observation. Action space: CLICK / TYPE / SELECT.",
+                            },
+                            {"role": "user", "content": awm_workflow_text},
+                            {
+                                "role": "user",
+                                "content": (
+                                    "Task: Book the cheapest flight to Tokyo.\n"
+                                    "Trajectory:\n"
+                                    "Observation: `<html> <button id=41>Select $412 flight</button> "
+                                    "<button id=42>View Deals sponsored package</button> <button id=43>Sort by</button> </html>`"
+                                ),
+                            },
+                        ],
+                    },
+                    "api_response_preview": "`CLICK [41]`",
+                    "chat_messages_preview": [
                         {
                             "role": "system",
                             "content": "You are a large language model trained to navigate the web. Output the next action and wait for the next observation. Action space: CLICK / TYPE / SELECT.",
@@ -2169,7 +2191,11 @@ pred_op, pred_id, pred_val = parse_act_str(pred_act)
 conversation.append({"input": message, "output": response, "token_stats": info})""",
                 "output": {
                     "_note": "AWM parses the backticked action with extract_from_response(response, '`').",
-                    "response": "`CLICK [41]`",
+                    "api_response": {
+                        "content": "`CLICK [41]`",
+                        "parsed_action": "CLICK [41]",
+                        "stop_tokens": ["Task:", "obs:"],
+                    },
                     "pred_act": "CLICK [41]",
                     "parsed": {"pred_op": "CLICK", "pred_id": "41", "pred_val": None},
                     "conversation_log_entry": {
