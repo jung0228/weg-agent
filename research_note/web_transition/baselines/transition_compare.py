@@ -47,7 +47,8 @@ STEP_DIR_RE = re.compile(r"^S(\d+)$")
 BASELINE_CARD_ORDER = {
     "synapse": 0,
     "awm": 1,
-    "reasoningbank": 2,
+    "wma": 2,
+    "reasoningbank": 3,
 }
 
 
@@ -1428,6 +1429,26 @@ Content: Systematically look for and click on links ...
 reasoning_bank.jsonl entry =
 {"task_id": "...", "memory_items": [{"title": "...", "description": "...", "content": "..."}]}""",
         },
+        "wma": {
+            "title": "WMA",
+            "heading": "WMA는 뭘 기억하나?",
+            "one_liner": "과거 lesson bank를 꺼내는 대신, 현재 observation과 후보 action마다 다음 상태를 상상해서 value로 고르는 world-model baseline이다.",
+            "storage": "persistent memory bank는 없다. 대신 policy model이 뽑은 candidate action과 world model이 예측한 imagined next observation / transition delta가 inference-time에만 쓰인다.",
+            "retrieval": "policy model이 current observation, URL, objective, previous action을 보고 action candidates를 샘플링하고, world model이 각 candidate에 대한 next-state prediction을 만든다.",
+            "llm_input": "policy prompt에는 OBSERVATION / URL / OBJECTIVE / PREVIOUS ACTION이 들어가고, world-model prompt에는 CURRENT ACTION과 NEXT STATE PREIDCTION이 들어간다. value prompt는 predicted next state까지 본다.",
+            "output": "policy는 candidate actions를 만들고, world model은 [Rationale] + [Next State]를, value function은 [Rationale] + [Score]를 내고, 최종 action은 argmax로 고른다.",
+            "memory_unit": "imagined_next_observation",
+            "artifact": "policy prompt + world-model prompt + value-function prompt",
+            "example_label": "prompt packet / candidate imagination",
+            "example": """policy prompt =
+OBSERVATION / URL / OBJECTIVE / PREVIOUS ACTION
+
+world-model output =
+{ "id": "a1", "memory_view": "The current result list will be replaced by a booking modal ...", ... }
+
+final decision =
+selected_action = a1""",
+        },
     }
     item = overviews.get(baseline)
     if not item:
@@ -1460,9 +1481,9 @@ reasoning_bank.jsonl entry =
           </div>
           ''' for label, text in cards)}
         </div>
-        <details class="baseline-overview-example"{' open' if baseline in {'reasoningbank', 'awm'} else ''}>
-          <summary>{esc(item["example_label"])}</summary>
-          <pre>{esc(item["example"])}</pre>
+        <details class="baseline-overview-example"{' open' if baseline in {'reasoningbank', 'awm', 'wma'} else ''}>
+            <summary>{esc(item["example_label"])}</summary>
+            <pre>{esc(item["example"])}</pre>
         </details>
       </div>
     """
@@ -1737,14 +1758,197 @@ f.write(json.dumps({"memory_items": generated_memory_item, ...}) + "\\n")""",
     """
 
 
+def render_wma_step_row(
+    step_dir: Path,
+    selected_action: str,
+    result_payload: dict[str, Any],
+) -> str:
+    metadata_text = read_text_or_placeholder(step_dir / "metadata.json")
+    user_prompt = read_text_or_placeholder(step_dir / "user_prompt.txt")
+    system_prompt = read_text_or_placeholder(step_dir / "system_prompt.txt")
+    llm_output = read_text_or_placeholder(step_dir / "llm_output.json")
+    acc_tree = read_text_or_placeholder(step_dir / "acc_tree.txt")
+
+    metadata = parse_json_text(metadata_text)
+    user_payload = parse_json_text(user_prompt)
+    llm_payload = parse_json_text(llm_output)
+
+    observation = user_payload.get("observation", {}) if isinstance(user_payload, dict) else {}
+    if not isinstance(observation, dict):
+        observation = {}
+    visible_regions = observation.get("visible_regions", [])
+    if not isinstance(visible_regions, list):
+        visible_regions = []
+    salient_elements = observation.get("salient_elements", [])
+    if not isinstance(salient_elements, list):
+        salient_elements = []
+    candidate_actions = user_payload.get("candidate_actions", []) if isinstance(user_payload, dict) else []
+    if not isinstance(candidate_actions, list):
+        candidate_actions = []
+    retrieved_transition_memory = user_payload.get("retrieved_transition_memory", []) if isinstance(user_payload, dict) else []
+    if not isinstance(retrieved_transition_memory, list):
+        retrieved_transition_memory = []
+
+    task_text = str(user_payload.get("task") or "—") if isinstance(user_payload, dict) else "—"
+    candidate_id = str(metadata.get("candidate_id") or llm_payload.get("id") or step_dir.name.lower())
+    selected = str(selected_action) == candidate_id
+
+    salient_preview = []
+    for element in salient_elements[:3]:
+        if not isinstance(element, dict):
+            continue
+        salient_preview.append(
+            f"{element.get('id', 'element')}: {element.get('text', '')} [{element.get('region', '')}]"
+        )
+
+    candidate_preview = []
+    for action in candidate_actions[:4]:
+        if not isinstance(action, dict):
+            continue
+        candidate_preview.append(
+            f"{action.get('id', 'candidate')} {action.get('op', '')} {action.get('surface', '')} → {action.get('target', '')}"
+        )
+
+    memory_preview = []
+    for memory in retrieved_transition_memory[:3]:
+        if not isinstance(memory, dict):
+            continue
+        memory_preview.append(
+            f"{memory.get('action_affordance', 'memory')}: {memory.get('expected_transition', '')}"
+        )
+
+    return f"""
+      <article class="rb-step-row">
+        <div class="rb-step-topline">
+          <div>
+            <div class="raw-step-step">{esc(step_dir.name)} · candidate {esc(candidate_id)}</div>
+            <div class="raw-step-title">Imagined next state for this candidate action</div>
+          </div>
+          <div class="meta">{chip("selected", "green") if selected else chip("candidate", "gray")} WMA step</div>
+        </div>
+        <div class="rb-step-body">
+          <div class="rb-step-note">
+            WMA는 여기서 long-term memory를 쓰지 않는다. 같은 observation을 후보 action마다 한 번씩 흘려보내고, world model이 만든 imagined next state를 value function으로 비교한다.
+          </div>
+          <div class="rb-step-io-grid">
+            <section class="rb-step-panel">
+              <div class="rb-step-panel-head">
+                <span class="rb-phase-kicker">Input</span>
+                <span class="meta">what the evaluator reads</span>
+              </div>
+              <div class="rb-step-panel-title">{esc(task_text)}</div>
+              <div class="rb-step-panel-grid">
+                <div class="rb-step-field">
+                  <span>Observation</span>
+                  <div>page_type: {esc(str(observation.get("page_type") or "—"))}</div>
+                  <div>visible_regions: {esc(join_preview([str(x) for x in visible_regions]))}</div>
+                  <div>salient: {esc(join_preview(salient_preview, limit=3))}</div>
+                </div>
+                <div class="rb-step-field">
+                  <span>Candidate actions</span>
+                  <div>{esc(join_preview(candidate_preview, limit=4))}</div>
+                </div>
+                <div class="rb-step-field">
+                  <span>Retrieved transition memory</span>
+                  <div>{esc(join_preview(memory_preview, limit=3))}</div>
+                </div>
+                <div class="rb-step-field full">
+                  <span>Prompt packet</span>
+                  <div>system_prompt.txt + user_prompt.txt + metadata.json</div>
+                </div>
+              </div>
+            </section>
+            <div class="rb-step-arrow" aria-hidden="true">→</div>
+            <section class="rb-step-panel">
+              <div class="rb-step-panel-head">
+                <span class="rb-phase-kicker">Output</span>
+                <span class="meta">imagined future + selection hint</span>
+              </div>
+              <div class="rb-step-panel-title">{esc(str(llm_payload.get("memory_view") or "—"))}</div>
+              <div class="rb-step-panel-grid">
+                <div class="rb-step-field">
+                  <span>Expected transition</span>
+                  <div>{esc(str(llm_payload.get("expected_transition") or "—"))}</div>
+                </div>
+                <div class="rb-step-field">
+                  <span>Failure signal</span>
+                  <div>{esc(str(llm_payload.get("failure_signal") or "—"))}</div>
+                </div>
+                <div class="rb-step-field">
+                  <span>Verification rule</span>
+                  <div>{esc(str(llm_payload.get("verification_rule") or "—"))}</div>
+                </div>
+                <div class="rb-step-field full">
+                  <span>Winner in this run</span>
+                  <div>{esc(str(result_payload.get("selected_action") or "—"))} · {esc(str(result_payload.get("selection_reason") or "—"))}</div>
+                </div>
+              </div>
+            </section>
+          </div>
+          <details style="margin-top:12px">
+            <summary>Raw files</summary>
+            <div class="raw-step-grid" style="margin-top:12px">
+              <div class="raw-step-column">
+                <div class="raw-section-label">Input</div>
+                {render_collapsible_raw_file_block("system_prompt.txt", system_prompt)}
+                {render_collapsible_raw_file_block("user_prompt.txt", user_prompt)}
+                {render_raw_file_block("metadata.json", metadata_text)}
+              </div>
+              <div class="raw-step-column">
+                <div class="raw-section-label">Output</div>
+                {render_collapsible_raw_file_block("llm_output.json", llm_output)}
+                {render_collapsible_raw_file_block("acc_tree.txt", acc_tree)}
+              </div>
+            </div>
+          </details>
+        </div>
+      </article>
+    """
+
+
+def render_wma_focus(bundle: dict[str, Any]) -> str:
+    task_dir = Path(bundle.get("task_dir", ""))
+    step_dirs = discover_step_dirs(task_dir)
+    if not step_dirs:
+        return '<div class="small">No WMA step directories found.</div>'
+
+    result_payload = bundle.get("result", {})
+    result_payload = result_payload if isinstance(result_payload, dict) else {}
+    selected_action = str(result_payload.get("selected_action") or "—")
+    selection_reason = str(result_payload.get("selection_reason") or "—")
+
+    step_cards = [render_wma_step_row(step_dir, selected_action, result_payload) for step_dir in step_dirs]
+    return f"""
+      <section class="wma-focus">
+        <div class="section-label">WMA candidate trace</div>
+        <div class="rb-exec-head">
+          <div>
+            <h2>WMA는 memory bank를 쌓지 않고, 후보 action마다 imagined next state를 만들어 value로 비교한다.</h2>
+            <p>
+              같은 flight 결과 화면을 기준으로 S1-S4가 각각 다른 candidate action을 평가한다. 이 페이지는 그 step-by-step input/output을 raw 파일과 함께 보여준다.
+            </p>
+          </div>
+          <div class="rb-exec-metrics">
+            <div><b>{len(step_dirs)}</b><span>candidate steps</span></div>
+            <div><b>{esc(selected_action)}</b><span>selected action</span></div>
+            <div><b>{esc(first_line(selection_reason, 80) or "—")}</b><span>selection reason</span></div>
+          </div>
+        </div>
+        <div class="stack">
+          {''.join(step_cards)}
+        </div>
+      </section>
+    """
+
+
 def render_memory_baseline_github_raw_io(bundle: dict[str, Any]) -> str:
     metadata = bundle.get("metadata", {})
     result = bundle.get("result", {})
     baseline = str(metadata.get("baseline") or "").strip()
-    if baseline not in {"synapse", "awm"}:
+    if baseline not in {"synapse", "awm", "wma"}:
         return ""
 
-    task = metadata.get("task") or bundle.get("task_name") or "taskflight_0"
+    task = bundle.get("payload", {}).get("task") or metadata.get("task") or bundle.get("task_name") or "taskflight_0"
     task_dir = Path(bundle.get("task_dir", ""))
     profile = BASELINE_PROFILES.get(baseline, {})
     result_payload = result if isinstance(result, dict) else {}
@@ -2039,7 +2243,7 @@ json.dump(conversation, open(os.path.join(log_dir, f"{task_id}.json"), "w"), ind
                 },
             },
         ]
-    else:
+    elif baseline == "awm":
         source_root = "/Users/jhw/Desktop/web/hyeonwoo/research_note/baselines/_repos/agent-workflow-memory"
         remote = "zorazrw/agent-workflow-memory"
         references = [
@@ -2249,6 +2453,112 @@ chat_messages = [SystemMessage(content=sys_msg), HumanMessage(content=prompt)]""
                 },
             },
         ]
+    else:
+        source_root = "/Users/jhw/Desktop/web/hyeonwoo/research_note/baselines/_repos/WMA-Agents"
+        remote = "kyle8581/WMA-Agents"
+        candidate_evaluations = result_payload.get("candidate_evaluations", [])
+        references = [
+            {
+                "title": "1. Sample action candidates from the policy prompt",
+                "source": "agent/world_model_agent.py::next_action + agent/prompts/jsons/p_cot_id_actree_2s.json",
+                "input": {
+                    "objective": task,
+                    "url": "current flight results page",
+                    "observation": "accessibility tree / HTML observation",
+                    "previous_action": "None",
+                    "prompt_shape": "OBSERVATION / URL / OBJECTIVE / PREVIOUS ACTION",
+                },
+                "code": """action_prediction_prompt = self.generate_prompt(self.action_prediction_template)
+action_generation_input = action_prediction_prompt.invoke(input_variables_for_action)
+raw_response_for_action_prediction = self.policy_llm.generate([action_generation_input])
+
+top_actions = sorted(parsed_actions_count, key=parsed_actions_count.get, reverse=True)[:branching_factor]""",
+                "output": {
+                    "_note": "The upstream agent samples multiple actions. This viewer reconstructs the visible candidate set from the benchmark bundle so the world-model flow is easy to inspect.",
+                    "policy_prompt_answer_phrase": "In summary, the next action I will perform is ```click [id]```",
+                    "viewer_reconstructed_candidates": [
+                        {"id": "a1", "surface": "Select"},
+                        {"id": "a2", "surface": "View Deals"},
+                        {"id": "a3", "surface": "1 stop"},
+                        {"id": "a4", "surface": "Sort by"},
+                    ],
+                },
+            },
+            {
+                "title": "2. Predict the next state for each candidate",
+                "source": "agent/world_model_agent.py + agent/prompts/jsons/state_prediction/text_only_acctree_format.json",
+                "input": {
+                    "objective": task,
+                    "url": "current flight results page",
+                    "previous_action": "None",
+                    "observation": "accessibility tree / HTML observation",
+                    "current_action": "candidate action such as click [e1]",
+                    "prompt_shape": "URL / OBJECTIVE / PREVIOUS ACTION / CURRENT OBSERVATION / CURRENT ACTION",
+                },
+                "code": """multiple_input_for_state = []
+for action_ in top_actions:
+    input_variable = {
+        "objective": intent,
+        "url": current_url,
+        "previous_action": previous_action_str,
+        "observation": obs['text'],
+        "current_action": action_
+    }
+    multiple_input_for_state.append(input_variable)
+
+raw_response_for_state_prediction = state_prediction_chain.batch(multiple_input_for_state)
+rationale, next_state = self.extract_state(response.content)""",
+                "output": {
+                    "_note": "Each candidate gets its own imagined next observation. In this bundle, that is stored as candidate_evaluations / memory_view.",
+                    "candidate_evaluations": candidate_evaluations,
+                    "selected_action": selected_action,
+                },
+            },
+            {
+                "title": "3. Score imagined states with the value function",
+                "source": "agent/world_model_agent.py::value_function + agent/prompts/jsons/value_function/text_only_value_function_likert.json",
+                "input": {
+                    "predicted_actions": "top_actions from step 1",
+                    "predicted_next_states": "imagined next observations from step 2",
+                    "objective": task,
+                    "trajectory": "current browser trajectory",
+                    "prompt_shape": "URL / OBJECTIVE / PREVIOUS ACTION / CURRENT OBSERVATION / CURRENT ACTION / NEXT STATE PREIDCTION",
+                },
+                "code": """value_function_prompt = self.generate_prompt(prompt_template)
+value_function_input = value_function_prompt.invoke(input_variables)
+raw_response_for_value_calculation = self.value_function_llm.generate([value_function_input])
+
+if self.value_model_training:
+    calculated_value_scores, all_individual_value_scores = self.process_mean_value_score_for_value_model(all_responses)
+else:
+    calculated_value_scores, all_individual_value_scores = self.process_mean_value_score_likert(all_responses)""",
+                "output": {
+                    "_note": "The prompt asks for [Rationale] and [Score]. The exact score vector is used internally for ranking, while this demo bundle keeps the final decision and its explanation.",
+                    "value_prompt_answer_shape": "[Rationale]: ... [Score]: 1 to 5",
+                    "selected_action": selected_action,
+                    "selection_reason": result_payload.get("selection_reason", ""),
+                    "winner_memory_view": selected_eval.get("memory_view", ""),
+                },
+            },
+            {
+                "title": "4. Argmax picks the final action",
+                "source": "agent/world_model_agent.py::next_action",
+                "input": {
+                    "value_scores": "score list returned by the value function",
+                },
+                "code": """best_action_index = np.argmax(value_scores)
+
+try:
+    action = create_id_based_action(top_actions[best_action_index])
+except:
+    action = create_none_action()""",
+                "output": {
+                    "selected_action": selected_action,
+                    "selection_reason": result_payload.get("selection_reason", ""),
+                    "_comment": "WMA does not perform persistent memory writeback here; the imagined transition is only used to choose the action.",
+                },
+            },
+        ]
 
     details = []
     for idx, ref in enumerate(references, start=1):
@@ -2270,13 +2580,22 @@ chat_messages = [SystemMessage(content=sys_msg), HumanMessage(content=prompt)]""
         )
 
     display = profile.get("display_name", baseline)
+    if baseline == "wma":
+        intro = (
+            f"실제 <code>{esc(remote)}</code> 구현을 기준으로, policy가 action candidates를 뽑고 "
+            "world model이 각 candidate의 imagined next state를 만든 뒤 value function이 그 미래를 비교한다. "
+            f"여기서 viewer가 보여주는 imagined transition의 저장 단위는 <b>{esc(profile.get('stored_unit', ''))}</b>이다."
+        )
+    else:
+        intro = (
+            f"실제 <code>{esc(remote)}</code> 구현을 기준으로 input/output을 접는 글로 펼쳐볼 수 있게 정리했다. "
+            f"여기서 viewer의 candidate list는 비교용 재구성이고, upstream baseline의 native memory output은 <b>{esc(profile.get('stored_unit', ''))}</b>이다."
+        )
     return f"""
       <section class="reasoningbank-github-io baseline-github-io">
         <div class="section-label">{esc(display)} GitHub-reference raw I/O</div>
         {render_baseline_memory_overview(baseline)}
-        <p class="baseline-intro">
-          실제 <code>{esc(remote)}</code> 구현을 기준으로 input/output을 접는 글로 펼쳐볼 수 있게 정리했다. 여기서 viewer의 candidate list는 비교용 재구성이고, upstream baseline의 native memory output은 <b>{esc(profile.get("stored_unit", ""))}</b>이다.
-        </p>
+        <p class="baseline-intro">{intro}</p>
         <div class="rb-github-source-note">
           Source root: <code>{esc(source_root)}</code>
           · remote <code>{esc(remote)}</code>
@@ -3001,6 +3320,8 @@ def render_model_card(bundle: dict[str, Any], compare_root: Path) -> str:
             + (render_github_raw_io_reference(episode_trace) if episode_trace is not None else "")
         )
         detail_body = render_reasoningbank_focus(bundle, compare_root)
+    elif baseline_name == "wma":
+        detail_body = render_wma_focus(bundle)
     else:
         detail_body = render_raw_step_gallery(bundle, compare_root)
 

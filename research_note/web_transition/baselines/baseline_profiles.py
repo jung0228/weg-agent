@@ -99,25 +99,25 @@ BASELINE_PROFILES: dict[str, dict[str, str]] = {
         "stored_unit": "imagined_next_observation",
         "pipeline": [
             {
-                "name": "Candidate roll-out",
-                "input": "Current observation plus a candidate action.",
-                "output": "Imagined next-observation delta.",
+                "name": "Action proposal",
+                "input": "Current observation, URL, objective, and previous action.",
+                "output": "Sampled action candidates from the frozen policy model.",
             },
             {
-                "name": "Prediction use",
-                "input": "Predicted deltas for competing actions.",
-                "output": "Action ranked by the expected next state.",
+                "name": "Next-state imagination",
+                "input": "Current observation plus each candidate action.",
+                "output": "Imagined next observation / transition delta for that candidate.",
             },
             {
-                "name": "Memory writeback",
-                "input": "Useful next-state prediction after the choice.",
-                "output": "Stored imagined transition for future look-ahead.",
+                "name": "Value scoring and selection",
+                "input": "Imagined next state, task objective, and current trajectory.",
+                "output": "Candidate ranked by predicted utility; best action selected with argmax.",
             },
         ],
         "memory_view_instruction": (
             "describe the imagined next observation delta for each candidate action"
         ),
-        "post_update": "store the most useful next-state prediction for later look-ahead",
+        "post_update": "no persistent memory writeback; the imagined transition is used immediately for ranking",
     },
     "webdreamer": {
         "display_name": "WebDreamer",
