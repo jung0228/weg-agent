@@ -1650,6 +1650,77 @@ def render_memory_baseline_github_raw_io(bundle: dict[str, Any]) -> str:
             "does not materialize candidate_actions JSON as its native memory output."
         ),
     }
+    selected_action = result_payload.get("selected_action", "a1") if isinstance(result_payload, dict) else "a1"
+    selected_eval = {}
+    for item in result_payload.get("candidate_evaluations", []) if isinstance(result_payload, dict) else []:
+        if isinstance(item, dict) and item.get("id") == selected_action:
+            selected_eval = item
+            break
+
+    synapse_exemplar = [
+        {
+            "role": "user",
+            "content": (
+                "Task: Book the cheapest flight from Seoul to Tokyo.\n"
+                "Trajectory:\n"
+                "Observation: `<html> <button id=17>Select $412 flight AA123</button> "
+                "<button id=18>View Deals sponsored package</button> <button id=19>Sort by</button> </html>`"
+            ),
+        },
+        {
+            "role": "assistant",
+            "content": "Action: `CLICK [17]` ([button] Select $412 flight AA123 -> CLICK)",
+        },
+        {
+            "role": "user",
+            "content": (
+                "Observation: `<html> <section>Fare detail: AA123, $412</section> "
+                "<button id=31>Continue</button> <button id=32>Baggage details</button> </html>`"
+            ),
+        },
+        {
+            "role": "assistant",
+            "content": "Action: `CLICK [31]` ([button] Continue -> CLICK)",
+        },
+    ]
+    synapse_current_query = [
+        {
+            "role": "user",
+            "content": (
+                "Task: Book the cheapest flight to Tokyo.\n"
+                "Trajectory:\n"
+                "Observation: `<html> <button id=41>Select $412 flight</button> "
+                "<button id=42>View Deals sponsored hotel+flight package</button> "
+                "<button id=43>Sort by</button> </html>`"
+            ),
+        }
+    ]
+    awm_workflow_text = (
+        "## select_flight_result\n"
+        "Given that you are on a flight results page, select the cheapest organic flight card and proceed through the fare detail panel.\n"
+        "[button] {Select on cheapest organic flight card} -> CLICK\n"
+        "[button] {Continue on fare detail panel} -> CLICK\n\n"
+        "## avoid_sponsored_deal_detours\n"
+        "Given that a sponsored package or deal banner appears near flight results, do not click it when the task is to book a specific flight.\n"
+        "[button] {View Deals or sponsored package CTA} -> DO_NOT_CLICK"
+    )
+    awm_concrete_example = [
+        {
+            "role": "user",
+            "specifier": "Website: demo-air\nDomain: Travel\nSubdomain: Flights",
+            "content": awm_workflow_text,
+        },
+        {
+            "role": "user",
+            "content": (
+                "Task: Book the cheapest flight to Tokyo.\n"
+                "Trajectory:\n"
+                "Observation: `<html> <button id=41>Select $412 flight</button> "
+                "<button id=42>View Deals sponsored package</button> </html>`"
+            ),
+        },
+        {"role": "assistant", "content": "`CLICK [41]`"},
+    ]
 
     if baseline == "synapse":
         source_root = "/Users/jhw/Desktop/web/hyeonwoo/research_note/baselines/_repos/Synapse"
@@ -1677,8 +1748,24 @@ json.dump(exemplars, open("exemplars.json", "w"), indent=2)
 memory = FAISS.from_texts(texts=specifiers, embedding=embedding, metadatas=metadatas)
 memory.save_local(memory_path)""",
                 "output": {
-                    "exemplars.json": "list of successful Task/Trajectory user-assistant messages",
-                    "faiss_index": "specifier embeddings keyed by exemplar id",
+                    "_note": "Concrete demo output matching the upstream file shape; actual ids/content depend on the Mind2Web train sample.",
+                    "exemplars.json": [
+                        synapse_exemplar
+                    ],
+                    "faiss_index_docstore": [
+                        {
+                            "metadata": {"name": 17},
+                            "page_content": (
+                                "Website: demo-air\nDomain: Travel\nSubdomain: Flights\n"
+                                "Task: Book the cheapest flight from Seoul to Tokyo."
+                            ),
+                        }
+                    ],
+                    "faiss_index_vectors": {
+                        "embedding_model": "text-embedding-ada-002",
+                        "vector_count": 1,
+                        "metadata_key": "name",
+                    },
                     "native_memory_unit": "trajectory_exemplar",
                 },
             },
@@ -1699,9 +1786,19 @@ retrieved_exemplar_names, scores = retrieve_exemplar_name(
 )
 exemplars = [memory_mapping[name] for name in retrieved_exemplar_names]""",
                 "output": {
-                    "retrieved_exemplar_names": "ids from FAISS metadata",
-                    "scores": "FAISS similarity scores",
-                    "exemplars": "full trajectory-as-exemplar message blocks",
+                    "_note": "This is the concrete shape returned by retrieve_exemplar_name + memory_mapping lookup.",
+                    "retrieved_exemplar_names": [17, 4, 88],
+                    "scores": [0.182, 0.247, 0.301],
+                    "exemplars": [
+                        synapse_exemplar,
+                        [
+                            {
+                                "role": "user",
+                                "content": "Task: Find a one-way flight and continue to passenger details.\nTrajectory:\nObservation: `<html> <button id=8>Select</button> <button id=9>Details</button> </html>`",
+                            },
+                            {"role": "assistant", "content": "Action: `CLICK [8]` ([button] Select -> CLICK)"},
+                        ],
+                    ],
                 },
             },
             {
@@ -1723,8 +1820,11 @@ if len(query) == 0:
 else:
     query.append({"role": "user", "content": "Observation: `" + obs + "`"})""",
                 "output": {
-                    "query": "Task + Trajectory history + current pruned Observation",
-                    "native_action_candidates": "not a JSON candidate list; element ids come from pruned observation",
+                    "_note": "Synapse gives the LLM a pruned observation containing element ids; it does not create a separate candidate_actions JSON.",
+                    "query": synapse_current_query,
+                    "prev_obs": [],
+                    "prev_actions": [],
+                    "visible_action_ids_inside_observation": ["41", "42", "43"],
                 },
             },
             {
@@ -1748,8 +1848,20 @@ message = sys_message + demo_message + query
 response, info = generate_response(messages=message, model=args.model, ...)
 pred_act = extract_from_response(response, "`")""",
                 "output": {
-                    "llm_output": "`CLICK [id]` / `TYPE [id] [value]` / `SELECT [id] [value]`",
-                    "viewer_result": common_output,
+                    "_note": "Raw LLM response is parsed by extract_from_response(response, '`').",
+                    "message": [
+                        {
+                            "role": "system",
+                            "content": "You are a large language model trained to navigate the web. Output the next action and wait for the next observation. Here is the action space: CLICK / TYPE / SELECT.",
+                        },
+                        *synapse_exemplar,
+                        *synapse_current_query,
+                    ],
+                    "response": "`CLICK [41]`",
+                    "pred_act": "CLICK [41]",
+                    "viewer_selected_action": selected_action,
+                    "viewer_selected_memory_view": selected_eval.get("memory_view", ""),
+                    "viewer_result_boundary": common_output["viewer_note"],
                 },
             },
             {
@@ -1770,8 +1882,26 @@ action_f1.append(calculate_f1(...))
 conversation.append({"input": message, "output": response, "token_stats": info})
 json.dump(conversation, open(os.path.join(log_dir, f"{task_id}.json"), "w"), indent=2)""",
                 "output": {
-                    "conversation_log": "input messages, raw response, token stats, pred/target action, metrics",
-                    "transition_prediction": "not produced by Synapse; it reuses trajectory exemplars for next-action prompting",
+                    "_note": "Synapse writes this style of conversation JSON per task id.",
+                    "conversation_log": [
+                        {
+                            "input": [
+                                {"role": "system", "content": "CLICK / TYPE / SELECT action space"},
+                                {"role": "user", "content": "Task: Book the cheapest flight to Tokyo.\nTrajectory:\nObservation: `<html> ... id=41 Select $412 ... </html>`"},
+                            ],
+                            "output": "`CLICK [41]`",
+                            "token_stats": {"prompt_tokens": 1843, "completion_tokens": 7, "total_tokens": 1850},
+                        },
+                        {"pred_act": "CLICK [41]", "target_act": "CLICK [41]"},
+                        {
+                            "element_acc": [1],
+                            "action_f1": [1.0],
+                            "step_success": [1],
+                            "success": [1],
+                        },
+                    ],
+                    "transition_prediction": None,
+                    "_comment": "Synapse chooses the next action from retrieved trajectory exemplars; it does not output an expected UI transition.",
                 },
             },
         ]
@@ -1799,7 +1929,8 @@ response = client.chat.completions.create(...)
 workflows = filter_workflows(response, website=tags[-1])
 save_to_txt(workflows, args)""",
                 "output": {
-                    "workflow_txt": "website-specific reusable workflow blocks",
+                    "_note": "Concrete demo output in the same .txt workflow-memory shape produced by filter_workflows(...).",
+                    "workflow_txt": awm_workflow_text,
                     "native_memory_unit": "workflow",
                 },
             },
@@ -1824,8 +1955,20 @@ concrete_examples = [
 
 memory += random.sample(concrete_examples, min(args.retrieve_top_k, len(concrete_examples)))""",
                 "output": {
-                    "exemplars": "workflow text plus tag-matched concrete examples",
-                    "retrieval_note": "Mind2Web AWM samples concrete examples after website/domain filtering, not FAISS-ranked trajectories",
+                    "_note": "AWM first puts workflow_path text into memory, then appends sampled concrete examples after tag filtering.",
+                    "workflow_path_text": awm_workflow_text,
+                    "tag_filtered_concrete_examples": [
+                        [
+                            {
+                                "role": "user",
+                                "specifier": "Website: demo-air\nDomain: Travel\nSubdomain: Flights",
+                                "content": "Task: Select the cheapest flight.\nTrajectory:\nObservation: `<html> <button id=17>Select $412</button> </html>`",
+                            },
+                            {"role": "assistant", "content": "`CLICK [17]`"},
+                        ]
+                    ],
+                    "exemplars": [awm_concrete_example],
+                    "_comment": "Mind2Web AWM samples concrete examples after website/domain filtering, not FAISS-ranked trajectories.",
                 },
             },
             {
@@ -1851,8 +1994,25 @@ query.append({
 
 message = sys_message + demo_message + query""",
                 "output": {
-                    "llm_input": "system action space + workflow/concrete examples + current trajectory query",
-                    "native_action_candidates": "not a JSON candidate list; action ids are visible in pruned observation",
+                    "_note": "This is the actual message list shape sent to generate_response(...).",
+                    "message": [
+                        {
+                            "role": "system",
+                            "content": "You are a large language model trained to navigate the web. Output the next action and wait for the next observation. Action space: CLICK / TYPE / SELECT.",
+                        },
+                        {"role": "user", "content": awm_workflow_text},
+                        {
+                            "role": "user",
+                            "content": (
+                                "Task: Book the cheapest flight to Tokyo.\n"
+                                "Trajectory:\n"
+                                "Observation: `<html> <button id=41>Select $412 flight</button> "
+                                "<button id=42>View Deals sponsored package</button> <button id=43>Sort by</button> </html>`"
+                            ),
+                        },
+                    ],
+                    "visible_action_ids_inside_observation": ["41", "42", "43"],
+                    "_comment": "No separate candidate_actions JSON is generated by the upstream AWM code.",
                 },
             },
             {
@@ -1874,8 +2034,22 @@ pred_op, pred_id, pred_val = parse_act_str(pred_act)
 
 conversation.append({"input": message, "output": response, "token_stats": info})""",
                 "output": {
-                    "llm_output": "`CLICK [id]` / `TYPE [id] [value]` / `SELECT [id] [value]`",
-                    "viewer_result": common_output,
+                    "_note": "AWM parses the backticked action with extract_from_response(response, '`').",
+                    "response": "`CLICK [41]`",
+                    "pred_act": "CLICK [41]",
+                    "parsed": {"pred_op": "CLICK", "pred_id": "41", "pred_val": None},
+                    "conversation_log_entry": {
+                        "input": [
+                            {"role": "system", "content": "CLICK / TYPE / SELECT action space"},
+                            {"role": "user", "content": awm_workflow_text},
+                            {"role": "user", "content": "Task: Book the cheapest flight to Tokyo.\nTrajectory:\nObservation: `<html> ... id=41 Select $412 ... </html>`"},
+                        ],
+                        "output": "`CLICK [41]`",
+                        "token_stats": {"prompt_tokens": 1328, "completion_tokens": 7, "total_tokens": 1335},
+                    },
+                    "viewer_selected_action": selected_action,
+                    "viewer_selected_memory_view": selected_eval.get("memory_view", ""),
+                    "viewer_result_boundary": common_output["viewer_note"],
                 },
             },
             {
@@ -1895,8 +2069,23 @@ if self.flags.workflow_path is not None:
 
 chat_messages = [SystemMessage(content=sys_msg), HumanMessage(content=prompt)]""",
                 "output": {
-                    "system_prompt_extra": "raw workflow file appended before action generation",
-                    "transition_prediction": "not produced by AWM; workflow guides the next action",
+                    "_note": "WebArena AWM appends workflow_path text to the system prompt before each get_action call.",
+                    "system_prompt_extra": awm_workflow_text,
+                    "chat_messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are an agent trying to solve a web task based on the content of the page and a user instructions.\n\n"
+                                + awm_workflow_text
+                            ),
+                        },
+                        {
+                            "role": "human",
+                            "content": "# Observation of current step:\nAXTree:\n[41] button 'Select $412 flight'\n[42] button 'View Deals sponsored package'\n# Action space:\nclick('id') ...",
+                        },
+                    ],
+                    "transition_prediction": None,
+                    "_comment": "AWM workflow guides the next action; it does not output a candidate-wise expected UI delta.",
                 },
             },
         ]
