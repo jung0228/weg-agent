@@ -1657,6 +1657,13 @@ def render_memory_baseline_github_raw_io(bundle: dict[str, Any]) -> str:
             selected_eval = item
             break
 
+    synapse_exemplar_index = 17
+    synapse_specifier = (
+        "Website: demo-air\n"
+        "Domain: Travel\n"
+        "Subdomain: Flights\n"
+        "Task: Book the cheapest flight from Seoul to Tokyo."
+    )
     synapse_exemplar = [
         {
             "role": "user",
@@ -1748,25 +1755,28 @@ json.dump(exemplars, open("exemplars.json", "w"), indent=2)
 memory = FAISS.from_texts(texts=specifiers, embedding=embedding, metadatas=metadatas)
 memory.save_local(memory_path)""",
                 "output": {
-                    "_note": "Concrete demo output matching the upstream file shape; actual ids/content depend on the Mind2Web train sample.",
-                    "exemplars.json": [
-                        synapse_exemplar
-                    ],
-                    "faiss_index_docstore": [
-                        {
-                            "metadata": {"name": 17},
-                            "page_content": (
-                                "Website: demo-air\nDomain: Travel\nSubdomain: Flights\n"
-                                "Task: Book the cheapest flight from Seoul to Tokyo."
-                            ),
-                        }
-                    ],
-                    "faiss_index_vectors": {
-                        "embedding_model": "text-embedding-ada-002",
-                        "vector_count": 1,
-                        "metadata_key": "name",
+                    "_note": "Yes: Synapse memory is this two-part structure. The FAISS store retrieves an integer id; that id indexes into exemplars.json to load the full trajectory exemplar.",
+                    "memory_artifacts": {
+                        "exemplars.json": {
+                            "_file_shape": "list[list[{role, content}]]",
+                            "_lookup_rule": "exemplars[metadata.name]",
+                            "excerpt": {
+                                f"[{synapse_exemplar_index}]": synapse_exemplar
+                            },
+                        },
+                        "faiss_vector_store": {
+                            "_stored_text": "specifier only; the full trajectory is not embedded here",
+                            "embedding_model": "text-embedding-ada-002",
+                            "docstore_excerpt": [
+                                {
+                                    "page_content": synapse_specifier,
+                                    "metadata": {"name": synapse_exemplar_index},
+                                }
+                            ],
+                            "index_to_exemplar_link": f"metadata.name={synapse_exemplar_index} -> exemplars.json[{synapse_exemplar_index}]",
+                        },
                     },
-                    "native_memory_unit": "trajectory_exemplar",
+                    "native_memory_unit": "trajectory_exemplar retrieved by task specifier",
                 },
             },
             {
@@ -1786,9 +1796,27 @@ retrieved_exemplar_names, scores = retrieve_exemplar_name(
 )
 exemplars = [memory_mapping[name] for name in retrieved_exemplar_names]""",
                 "output": {
-                    "_note": "This is the concrete shape returned by retrieve_exemplar_name + memory_mapping lookup.",
-                    "retrieved_exemplar_names": [17, 4, 88],
+                    "_note": "retrieve_exemplar_name returns FAISS metadata.name values, then agents/mind2web.py loads memory_mapping[name] from exemplars.json.",
+                    "query_specifier": (
+                        "Website: demo-air\n"
+                        "Domain: Travel\n"
+                        "Subdomain: Flights\n"
+                        "Task: Book the cheapest flight to Tokyo."
+                    ),
+                    "retrieved_exemplar_names": [synapse_exemplar_index, 4, 88],
                     "scores": [0.182, 0.247, 0.301],
+                    "lookup": [
+                        {
+                            "metadata.name": synapse_exemplar_index,
+                            "load": f"exemplars.json[{synapse_exemplar_index}]",
+                            "retrieved_specifier": synapse_specifier,
+                        },
+                        {
+                            "metadata.name": 4,
+                            "load": "exemplars.json[4]",
+                            "retrieved_specifier": "Website: airline-demo\nDomain: Travel\nSubdomain: Flights\nTask: Find a one-way flight and continue to passenger details.",
+                        },
+                    ],
                     "exemplars": [
                         synapse_exemplar,
                         [
