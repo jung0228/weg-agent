@@ -1439,15 +1439,24 @@ reasoning_bank.jsonl entry =
             "output": "policy는 candidate actions를 만들고, world model은 [Rationale] + [Next State]를, value function은 [Rationale] + [Score]를 내고, 최종 action은 argmax로 고른다.",
             "memory_unit": "imagined_next_observation",
             "artifact": "policy prompt + world-model prompt + value-function prompt",
-            "example_label": "prompt packet / candidate imagination",
-            "example": """policy prompt =
-OBSERVATION / URL / OBJECTIVE / PREVIOUS ACTION
+            "example_label": "actual prompt packet + run output",
+            "example": """policy prompt template =
+OBSERVATION:
+{observation}
+URL: {url}
+OBJECTIVE: {objective}
+PREVIOUS ACTION: {previous_action}
 
-world-model output =
-{ "id": "a1", "memory_view": "The current result list will be replaced by a booking modal ...", ... }
+state prediction prompt template =
+URL / OBJECTIVE / PREVIOUS ACTION / CURRENT OBSERVATION / CURRENT ACTION / [Rationale] ... [Next State]
 
-final decision =
-selected_action = a1""",
+value prompt template =
+URL / OBJECTIVE / PREVIOUS ACTION / CURRENT OBSERVATION / CURRENT ACTION / NEXT STATE PREIDCTION / [Rationale] ... [Score]
+
+run bundle candidate_actions =
+a1 Select · a2 View Deals · a3 1 stop · a4 Sort by
+selected_action =
+a1""",
         },
     }
     item = overviews.get(baseline)
@@ -2474,13 +2483,13 @@ raw_response_for_action_prediction = self.policy_llm.generate([action_generation
 
 top_actions = sorted(parsed_actions_count, key=parsed_actions_count.get, reverse=True)[:branching_factor]""",
                 "output": {
-                    "_note": "The upstream agent samples multiple actions. This viewer reconstructs the visible candidate set from the benchmark bundle so the world-model flow is easy to inspect.",
+                    "_note": "This step uses the actual benchmark bundle candidate_actions together with the real WMA prompt shape from the upstream repo. The raw policy generations themselves are not persisted by the runner, so the viewer shows the actual candidate set that the later world-model and value steps evaluated.",
                     "policy_prompt_answer_phrase": "In summary, the next action I will perform is ```click [id]```",
-                    "viewer_reconstructed_candidates": [
-                        {"id": "a1", "surface": "Select"},
-                        {"id": "a2", "surface": "View Deals"},
-                        {"id": "a3", "surface": "1 stop"},
-                        {"id": "a4", "surface": "Sort by"},
+                    "candidate_actions": [
+                        {"id": "a1", "op": "click", "target": "e1", "surface": "Select"},
+                        {"id": "a2", "op": "click", "target": "e2", "surface": "View Deals"},
+                        {"id": "a3", "op": "click", "target": "e3", "surface": "1 stop"},
+                        {"id": "a4", "op": "click", "target": "e4", "surface": "Sort by"},
                     ],
                 },
             },
