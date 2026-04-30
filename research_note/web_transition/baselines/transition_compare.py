@@ -1362,6 +1362,77 @@ def render_pre_policy_modules(step: dict[str, Any]) -> str:
     """
 
 
+def render_baseline_memory_overview(baseline: str) -> str:
+    overviews = {
+        "synapse": {
+            "title": "Synapse",
+            "heading": "Synapse는 뭘 기억하나?",
+            "one_liner": "현재 task와 비슷한 과거 trajectory를 exemplar로 꺼내서, LLM prompt 앞에 시범 풀이처럼 붙이는 방식이다.",
+            "storage": "exemplars.json에는 full trajectory message block을 저장하고, FAISS에는 Website / Domain / Subdomain / Task specifier embedding과 metadata.name index만 저장한다.",
+            "retrieval": "현재 task specifier를 FAISS에 질의하면 metadata.name id들이 나오고, 그 id로 exemplars.json[id]를 로드한다.",
+            "llm_input": "system action-space + retrieved trajectory exemplars + current observation/history가 들어간다.",
+            "output": "LLM은 `CLICK [id]` 같은 다음 action을 출력한다. 별도의 transition prediction이나 candidate_actions JSON은 원본 구현에 없다.",
+            "memory_unit": "trajectory_exemplar",
+            "artifact": "FAISS index + exemplars.json",
+        },
+        "awm": {
+            "title": "AWM",
+            "heading": "AWM은 뭘 기억하나?",
+            "one_liner": "여러 task trajectory에서 반복되는 절차를 workflow로 추상화해서, 새 task의 행동 선택 가이드로 넣는 방식이다.",
+            "storage": "workflow/<website>.txt에는 high-level workflow rule을 저장하고, data/memory/exemplars.json에는 tag-filtered concrete examples를 저장한다.",
+            "retrieval": "website / domain / subdomain tag가 맞는 workflow text와 concrete example을 로드한다. Mind2Web path에서는 FAISS ranking이 아니라 tag filtering + sampling에 가깝다.",
+            "llm_input": "system action-space + workflow text + concrete examples + current observation/history가 들어간다.",
+            "output": "LLM은 backtick으로 감싼 next action을 출력한다. workflow가 방향을 잡아주지만 UI 변화 예측값을 직접 만들지는 않는다.",
+            "memory_unit": "workflow",
+            "artifact": "workflow .txt + exemplars.json",
+        },
+        "reasoningbank": {
+            "title": "ReasoningBank",
+            "heading": "ReasoningBank는 뭘 기억하나?",
+            "one_liner": "episode 전체를 보고 성공/실패 교훈을 Title / Description / Content 형태의 lesson으로 뽑아 bank에 쌓는 방식이다.",
+            "storage": "reasoning_bank JSONL에는 task별 memory_items가 저장되고, 각 item은 Title / Description / Content 형식의 reusable lesson이다.",
+            "retrieval": "episode 시작 전에 현재 task intent로 관련 memory item을 고르고, 선택된 text를 memory_path 파일로 만든 뒤 prompt에 주입한다.",
+            "llm_input": "system prompt + selected memory_path text + AXTree/HTML observation + action-space prompt + history가 들어간다.",
+            "output": "action 중에는 `<action>...</action>`을 출력하고, episode 후에는 trajectory + judge signal에서 새 memory item을 induction해서 bank에 append한다.",
+            "memory_unit": "reasoning_lesson",
+            "artifact": "reasoning_bank JSONL + memory_path text",
+        },
+    }
+    item = overviews.get(baseline)
+    if not item:
+        return ""
+
+    cards = [
+        ("간단 설명", item["one_liner"]),
+        ("메모리 구성", item["storage"]),
+        ("검색 / 로드", item["retrieval"]),
+        ("LLM input", item["llm_input"]),
+        ("Output", item["output"]),
+    ]
+    return f"""
+      <div class="baseline-overview">
+        <div class="baseline-overview-head">
+          <div>
+            <span class="rb-phase-kicker">Method quick read</span>
+            <h3>{esc(item["heading"])}</h3>
+          </div>
+          <div class="baseline-overview-tags">
+            <span>{esc(item["memory_unit"])}</span>
+            <span>{esc(item["artifact"])}</span>
+          </div>
+        </div>
+        <div class="baseline-overview-grid">
+          {''.join(f'''
+          <div class="baseline-overview-card">
+            <span>{esc(label)}</span>
+            <p>{esc(text)}</p>
+          </div>
+          ''' for label, text in cards)}
+        </div>
+      </div>
+    """
+
+
 def render_reasoningbank_executive_summary(episode: dict[str, Any]) -> str:
     initial_bank = episode.get("initial_bank", [])
     initial_items = [item for item in initial_bank if isinstance(item, dict)] if isinstance(initial_bank, list) else []
@@ -1617,6 +1688,7 @@ f.write(json.dumps({"memory_items": generated_memory_item, ...}) + "\\n")""",
     return f"""
       <section class="reasoningbank-github-io">
         <div class="section-label">GitHub-reference raw I/O</div>
+        {render_baseline_memory_overview("reasoningbank")}
         <p class="baseline-intro">
           아래는 실제 ReasoningBank GitHub WebArena 경로를 기준으로 한 input/output이다. 접는 글을 열면 각 단계의 raw input, 코드 위치, output을 그대로 볼 수 있다.
         </p>
@@ -2141,6 +2213,7 @@ chat_messages = [SystemMessage(content=sys_msg), HumanMessage(content=prompt)]""
     return f"""
       <section class="reasoningbank-github-io baseline-github-io">
         <div class="section-label">{esc(display)} GitHub-reference raw I/O</div>
+        {render_baseline_memory_overview(baseline)}
         <p class="baseline-intro">
           실제 <code>{esc(remote)}</code> 구현을 기준으로 input/output을 접는 글로 펼쳐볼 수 있게 정리했다. 여기서 viewer의 candidate list는 비교용 재구성이고, upstream baseline의 native memory output은 <b>{esc(profile.get("stored_unit", ""))}</b>이다.
         </p>
@@ -2862,6 +2935,7 @@ def render_model_card(bundle: dict[str, Any], compare_root: Path) -> str:
     github_raw_io = render_memory_baseline_github_raw_io(bundle)
 
     if baseline_name == "reasoningbank":
+        github_raw_io = render_baseline_memory_overview("reasoningbank")
         detail_body = render_reasoningbank_focus(bundle, compare_root)
     else:
         detail_body = render_raw_step_gallery(bundle, compare_root)
@@ -4648,6 +4722,82 @@ body {
   backdrop-filter: blur(12px);
 }
 
+.baseline-overview {
+  margin: 10px 0 14px;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at top left, rgba(14, 116, 144, 0.10), transparent 32%),
+    linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(255, 255, 255, 0.94));
+  padding: 14px;
+}
+
+.baseline-overview-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.baseline-overview-head h3 {
+  margin: 4px 0 0;
+  font-size: 18px;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  color: #0f172a;
+}
+
+.baseline-overview-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.baseline-overview-tags span {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #e0f2fe;
+  color: #075985;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+
+.baseline-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 8px;
+}
+
+.baseline-overview-card {
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.86);
+  padding: 11px 12px;
+}
+
+.baseline-overview-card span {
+  display: block;
+  margin-bottom: 6px;
+  color: #64748b;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 900;
+}
+
+.baseline-overview-card p {
+  margin: 0;
+  color: #0f172a;
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
 .rb-github-source-note {
   margin: 10px 0 12px;
   border: 1px dashed rgba(15, 23, 42, 0.14);
@@ -5387,6 +5537,9 @@ pre {
   .rb-prepolicy-grid { grid-template-columns: 1fr; }
   .rb-score-list li { grid-template-columns: 1fr; }
   .rb-raw-io-grid { grid-template-columns: 1fr; }
+  .baseline-overview-head { flex-direction: column; }
+  .baseline-overview-tags { justify-content: flex-start; }
+  .baseline-overview-grid { grid-template-columns: 1fr; }
   .rb-step-row { grid-template-columns: 1fr; }
   .rb-step-media { position: static; }
   .rb-step-summary { grid-template-columns: 1fr; }
