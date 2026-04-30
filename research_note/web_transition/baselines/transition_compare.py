@@ -1374,6 +1374,17 @@ def render_baseline_memory_overview(baseline: str) -> str:
             "output": "LLM은 `CLICK [id]` 같은 다음 action을 출력한다. 별도의 transition prediction이나 candidate_actions JSON은 원본 구현에 없다.",
             "memory_unit": "trajectory_exemplar",
             "artifact": "FAISS index + exemplars.json",
+            "example_label": "memory example",
+            "example": """exemplars.json[17] = [
+  {"role": "user", "content": "Task ... Observation ..."},
+  {"role": "assistant", "content": "Action: `CLICK [17]`"},
+  {"role": "user", "content": "Observation ..."},
+  {"role": "assistant", "content": "Action: `CLICK [31]`"}
+]
+
+faiss docstore metadata:
+  {"name": 17}
+  -> retrieve_exemplar_name(...) -> exemplars.json[17]""",
         },
         "awm": {
             "title": "AWM",
@@ -1385,6 +1396,18 @@ def render_baseline_memory_overview(baseline: str) -> str:
             "output": "LLM은 backtick으로 감싼 next action을 출력한다. workflow가 방향을 잡아주지만 UI 변화 예측값을 직접 만들지는 않는다.",
             "memory_unit": "workflow",
             "artifact": "workflow .txt + exemplars.json",
+            "example_label": "memory example",
+            "example": """workflow/<website>.txt =
+## select_flight_result
+[button] {Select on cheapest organic flight card} -> CLICK
+[button] {Continue on fare detail panel} -> CLICK
+
+exemplars.json = [
+  [
+    {"role": "user", "specifier": "Website: demo-air\\nDomain: Travel\\nSubdomain: Flights", "content": "Task ..."},
+    {"role": "assistant", "content": "`CLICK [17]`"}
+  ]
+]""",
         },
         "reasoningbank": {
             "title": "ReasoningBank",
@@ -1396,6 +1419,14 @@ def render_baseline_memory_overview(baseline: str) -> str:
             "output": "action 중에는 `<action>...</action>`을 출력하고, episode 후에는 trajectory + judge signal에서 새 memory item을 induction해서 bank에 append한다.",
             "memory_unit": "reasoning_lesson",
             "artifact": "reasoning_bank JSONL + memory_path text",
+            "example_label": "memory example",
+            "example": """memory_path text =
+Title: Prioritize user account sections for personal data
+Description: When a query requests user-specific ...
+Content: Systematically look for and click on links ...
+
+reasoning_bank.jsonl entry =
+{"task_id": "...", "memory_items": [{"title": "...", "description": "...", "content": "..."}]}""",
         },
     }
     item = overviews.get(baseline)
@@ -1429,6 +1460,10 @@ def render_baseline_memory_overview(baseline: str) -> str:
           </div>
           ''' for label, text in cards)}
         </div>
+        <details class="baseline-overview-example">
+          <summary>{esc(item["example_label"])}</summary>
+          <pre>{esc(item["example"])}</pre>
+        </details>
       </div>
     """
 
@@ -4796,6 +4831,40 @@ body {
   font-size: 12px;
   line-height: 1.55;
   overflow-wrap: anywhere;
+}
+
+.baseline-overview-example {
+  margin-top: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.86);
+  padding: 0;
+}
+
+.baseline-overview-example summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 10px 12px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 900;
+  color: #0f766e;
+}
+
+.baseline-overview-example summary::-webkit-details-marker {
+  display: none;
+}
+
+.baseline-overview-example pre {
+  margin: 0;
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+  padding: 12px;
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #0f172a;
 }
 
 .rb-github-source-note {
