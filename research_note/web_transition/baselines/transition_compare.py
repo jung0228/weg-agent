@@ -1612,6 +1612,314 @@ f.write(json.dumps({"memory_items": generated_memory_item, ...}) + "\\n")""",
     """
 
 
+def render_memory_baseline_github_raw_io(bundle: dict[str, Any]) -> str:
+    metadata = bundle.get("metadata", {})
+    result = bundle.get("result", {})
+    baseline = str(metadata.get("baseline") or "").strip()
+    if baseline not in {"synapse", "awm"}:
+        return ""
+
+    task = metadata.get("task") or bundle.get("task_name") or "taskflight_0"
+    task_dir = Path(bundle.get("task_dir", ""))
+    profile = BASELINE_PROFILES.get(baseline, {})
+    result_payload = result if isinstance(result, dict) else {}
+    common_output = {
+        "viewer_result_json": result_payload,
+        "stored_unit": profile.get("stored_unit", ""),
+        "viewer_note": (
+            "This viewer may show candidate_actions for comparison, but the upstream GitHub baseline "
+            "does not materialize candidate_actions JSON as its native memory output."
+        ),
+    }
+
+    if baseline == "synapse":
+        source_root = "/Users/jhw/Desktop/web/hyeonwoo/research_note/baselines/_repos/Synapse"
+        remote = "ltzheng/Synapse"
+        references = [
+            {
+                "title": "1. Build trajectory exemplar memory",
+                "source": "build_memory.py + synapse/memory/mind2web/build_memory.py",
+                "input": {
+                    "env": "mind2web",
+                    "mind2web_data_dir": "<Mind2Web data dir>",
+                    "scores": "scores_all_data.pkl",
+                    "top_k": "args.mind2web_top_k_elements",
+                },
+                "code": """memory_path = os.path.join(current_path, "synapse/memory/mind2web")
+build_memory(memory_path, args.mind2web_data_dir, args.mind2web_top_k_elements)
+
+specifier = get_specifiers_from_sample(sample)
+target_obs, _ = get_top_k_obs(s, top_k)
+prev_actions.append("Action: `" + target_act + "` (" + act_repr + ")")
+
+exemplars.append(message)
+json.dump(exemplars, open("exemplars.json", "w"), indent=2)
+
+memory = FAISS.from_texts(texts=specifiers, embedding=embedding, metadatas=metadatas)
+memory.save_local(memory_path)""",
+                "output": {
+                    "exemplars.json": "list of successful Task/Trajectory user-assistant messages",
+                    "faiss_index": "specifier embeddings keyed by exemplar id",
+                    "native_memory_unit": "trajectory_exemplar",
+                },
+            },
+            {
+                "title": "2. Retrieve similar exemplars",
+                "source": "synapse/agents/mind2web.py + synapse/memory/mind2web/build_memory.py",
+                "input": {
+                    "current_task": task,
+                    "memory_path": "synapse/memory/mind2web",
+                    "retrieve_top_k": "args.retrieve_top_k",
+                },
+                "code": """memory = load_memory(args.memory_path)
+memory_mapping = json.load(open(os.path.join(args.memory_path, "exemplars.json")))
+
+specifier = get_specifiers_from_sample(sample)
+retrieved_exemplar_names, scores = retrieve_exemplar_name(
+    memory, specifier, args.retrieve_top_k
+)
+exemplars = [memory_mapping[name] for name in retrieved_exemplar_names]""",
+                "output": {
+                    "retrieved_exemplar_names": "ids from FAISS metadata",
+                    "scores": "FAISS similarity scores",
+                    "exemplars": "full trajectory-as-exemplar message blocks",
+                },
+            },
+            {
+                "title": "3. Build current Mind2Web query",
+                "source": "synapse/agents/mind2web.py + synapse/envs/mind2web/env_utils.py",
+                "input": {
+                    "sample.actions": "current Mind2Web step",
+                    "prev_obs_prev_actions": "history from prior steps",
+                    "top_k_elements": "rank-pruned DOM candidates from Mind2Web scorer",
+                },
+                "code": """obs, _ = get_top_k_obs(s, args.top_k_elements, use_raw=False)
+
+if len(query) == 0:
+    query.append({
+        "role": "user",
+        "content": f"Task: {sample['confirmed_task']}\\nTrajectory:\\n"
+        + "Observation: `" + obs + "`",
+    })
+else:
+    query.append({"role": "user", "content": "Observation: `" + obs + "`"})""",
+                "output": {
+                    "query": "Task + Trajectory history + current pruned Observation",
+                    "native_action_candidates": "not a JSON candidate list; element ids come from pruned observation",
+                },
+            },
+            {
+                "title": "4. Trajectory-as-exemplar prompt -> next action",
+                "source": "synapse/agents/mind2web.py",
+                "input": {
+                    "system_message": "CLICK / TYPE / SELECT action space",
+                    "demo_message": "retrieved exemplar trajectories",
+                    "query": "current task trajectory prompt",
+                },
+                "code": """demo_message = []
+for e_id, e in enumerate(exemplars):
+    total_num_tokens = num_tokens_from_messages(
+        sys_message + demo_message + e + query, args.model
+    )
+    if total_num_tokens > MAX_TOKENS[args.model]:
+        break
+    demo_message.extend(e)
+
+message = sys_message + demo_message + query
+response, info = generate_response(messages=message, model=args.model, ...)
+pred_act = extract_from_response(response, "`")""",
+                "output": {
+                    "llm_output": "`CLICK [id]` / `TYPE [id] [value]` / `SELECT [id] [value]`",
+                    "viewer_result": common_output,
+                },
+            },
+            {
+                "title": "5. Evaluate and write conversation log",
+                "source": "synapse/agents/mind2web.py",
+                "input": {
+                    "pred_act": "LLM action string",
+                    "target_act": "Mind2Web ground-truth action",
+                    "pos_candidates": "positive candidate node ids",
+                },
+                "code": """pred_op, pred_id, pred_val = parse_act_str(pred_act)
+target_op, _, target_val = parse_act_str(target_act)
+
+pos_ids = [c["backend_node_id"] for c in s["pos_candidates"]][:1]
+element_acc.append(1 if pred_id in pos_ids else 0)
+action_f1.append(calculate_f1(...))
+
+conversation.append({"input": message, "output": response, "token_stats": info})
+json.dump(conversation, open(os.path.join(log_dir, f"{task_id}.json"), "w"), indent=2)""",
+                "output": {
+                    "conversation_log": "input messages, raw response, token stats, pred/target action, metrics",
+                    "transition_prediction": "not produced by Synapse; it reuses trajectory exemplars for next-action prompting",
+                },
+            },
+        ]
+    else:
+        source_root = "/Users/jhw/Desktop/web/hyeonwoo/research_note/baselines/_repos/agent-workflow-memory"
+        remote = "zorazrw/agent-workflow-memory"
+        references = [
+            {
+                "title": "1. Offline workflow induction",
+                "source": "mind2web/offline_induction.py + mind2web/utils/data.py",
+                "input": {
+                    "data_dir": "data/train",
+                    "tags": "domain / subdomain / website",
+                    "examples": "confirmed_task + action_reprs",
+                    "prompt": "prompt/instruction_action.txt + prompt/one_shot_action.txt",
+                },
+                "code": """examples = get_examples(data_dict, tags=tags)
+add_scores(examples, candidate_results)
+
+prompt = f"Website: " + ",".join(tags) + "\\n"
+prompt += format_examples(examples, args.prefix, args.suffix)
+prompt = "\\n\\n".join([args.INSTRUCTION, args.ONE_SHOT, prompt])
+
+response = client.chat.completions.create(...)
+workflows = filter_workflows(response, website=tags[-1])
+save_to_txt(workflows, args)""",
+                "output": {
+                    "workflow_txt": "website-specific reusable workflow blocks",
+                    "native_memory_unit": "workflow",
+                },
+            },
+            {
+                "title": "2. Load workflow memory and concrete examples",
+                "source": "mind2web/memory.py::get_exemplars",
+                "input": {
+                    "workflow_path": "workflow/<website>.txt",
+                    "memory_path": "data/memory/exemplars.json",
+                    "tags": "website / domain / subdomain",
+                    "retrieve_top_k": "args.retrieve_top_k",
+                },
+                "code": """workflow_text = open(args.workflow_path, "r").read().strip()
+if len(workflow_text):
+    memory = [[{"role": "user", "content": workflow_text}]]
+
+concrete_examples = json.load(open(os.path.join(args.memory_path, "exemplars.json")))
+concrete_examples = [
+    cex for cex in concrete_examples
+    if all([tag in cex[0]["specifier"] for tag in [args.domain, args.subdomain, args.website]])
+]
+
+memory += random.sample(concrete_examples, min(args.retrieve_top_k, len(concrete_examples)))""",
+                "output": {
+                    "exemplars": "workflow text plus tag-matched concrete examples",
+                    "retrieval_note": "Mind2Web AWM samples concrete examples after website/domain filtering, not FAISS-ranked trajectories",
+                },
+            },
+            {
+                "title": "3. Build workflow-guided policy prompt",
+                "source": "mind2web/memory.py::eval_sample",
+                "input": {
+                    "current_task": task,
+                    "current_observation": "get_top_k_obs(..., use_raw=False)",
+                    "history": "prev_obs + prev_actions",
+                    "exemplars": "workflow memory + concrete examples",
+                },
+                "code": """query = []
+for o, a in zip(prev_obs, prev_actions):
+    query.append({"role": "user", "content": o})
+    query.append({"role": "assistant", "content": a})
+
+obs, _ = get_top_k_obs(s, args.top_k_elements, use_raw=False)
+query.append({
+    "role": "user",
+    "content": f"Task: {sample['confirmed_task']}\\nTrajectory:\\n"
+    + "Observation: `" + obs + "`",
+})
+
+message = sys_message + demo_message + query""",
+                "output": {
+                    "llm_input": "system action space + workflow/concrete examples + current trajectory query",
+                    "native_action_candidates": "not a JSON candidate list; action ids are visible in pruned observation",
+                },
+            },
+            {
+                "title": "4. Generate action and score it",
+                "source": "mind2web/memory.py::eval_sample",
+                "input": {
+                    "message": "sys_message + workflow exemplars + query",
+                    "model": "args.model",
+                    "temperature": "args.temperature",
+                },
+                "code": """response, info = generate_response(
+    messages=message,
+    model=args.model,
+    temperature=args.temperature,
+    stop_tokens=["Task:", "obs:"],
+)
+pred_act = extract_from_response(response, "`")
+pred_op, pred_id, pred_val = parse_act_str(pred_act)
+
+conversation.append({"input": message, "output": response, "token_stats": info})""",
+                "output": {
+                    "llm_output": "`CLICK [id]` / `TYPE [id] [value]` / `SELECT [id] [value]`",
+                    "viewer_result": common_output,
+                },
+            },
+            {
+                "title": "5. WebArena variant injects workflow_path into system prompt",
+                "source": "webarena/run.py + webarena/agents/legacy/agent.py",
+                "input": {
+                    "workflow_path": "workflow/<website>.txt",
+                    "BrowserGym observation": "AXTree/HTML/screenshot depending on flags",
+                },
+                "code": """# run.py
+Flags(..., workflow_path=args.workflow_path)
+
+# agents/legacy/agent.py
+sys_msg = dynamic_prompting.SystemPrompt().prompt
+if self.flags.workflow_path is not None:
+    sys_msg += "\\n\\n" + open(self.flags.workflow_path).read()
+
+chat_messages = [SystemMessage(content=sys_msg), HumanMessage(content=prompt)]""",
+                "output": {
+                    "system_prompt_extra": "raw workflow file appended before action generation",
+                    "transition_prediction": "not produced by AWM; workflow guides the next action",
+                },
+            },
+        ]
+
+    details = []
+    for idx, ref in enumerate(references, start=1):
+        open_attr = " open" if idx == 1 else ""
+        details.append(
+            f"""
+            <details class="rb-github-raw"{open_attr}>
+              <summary>
+                <span class="raw-file-name">{esc(ref["title"])}</span>
+                <span class="raw-file-preview">{esc(ref["source"])}</span>
+              </summary>
+              <div class="rb-raw-io-grid">
+                {render_raw_file_block("input.json", json.dumps(ref["input"], ensure_ascii=False, indent=2))}
+                {render_raw_file_block("github_code_excerpt.py", str(ref["code"]))}
+                {render_raw_file_block("output.json", json.dumps(ref["output"], ensure_ascii=False, indent=2))}
+              </div>
+            </details>
+            """
+        )
+
+    display = profile.get("display_name", baseline)
+    return f"""
+      <section class="reasoningbank-github-io baseline-github-io">
+        <div class="section-label">{esc(display)} GitHub-reference raw I/O</div>
+        <p class="baseline-intro">
+          실제 <code>{esc(remote)}</code> 구현을 기준으로 input/output을 접는 글로 펼쳐볼 수 있게 정리했다. 여기서 viewer의 candidate list는 비교용 재구성이고, upstream baseline의 native memory output은 <b>{esc(profile.get("stored_unit", ""))}</b>이다.
+        </p>
+        <div class="rb-github-source-note">
+          Source root: <code>{esc(source_root)}</code>
+          · remote <code>{esc(remote)}</code>
+          · task dir <code>{esc(str(task_dir))}</code>
+        </div>
+        <div class="stack">
+          {''.join(details)}
+        </div>
+      </section>
+    """
+
+
 def render_episode_initial_bank(episode: dict[str, Any]) -> str:
     initial_bank = episode.get("initial_bank", [])
     items = initial_bank if isinstance(initial_bank, list) else []
@@ -2317,6 +2625,7 @@ def render_model_card(bundle: dict[str, Any], compare_root: Path) -> str:
     metadata_json = read_text_or_placeholder(task_dir / "metadata.json")
     interact_messages = read_text_or_placeholder(task_dir / "interact_messages.json")
     assistant_output = read_text_or_placeholder(task_dir / "assistant_output.txt")
+    github_raw_io = render_memory_baseline_github_raw_io(bundle)
 
     if baseline_name == "reasoningbank":
         detail_body = render_reasoningbank_focus(bundle, compare_root)
@@ -2334,6 +2643,7 @@ def render_model_card(bundle: dict[str, Any], compare_root: Path) -> str:
           {chip(task_name, "gray")}
         </div>
         {output_strip}
+        {github_raw_io}
         {detail_body}
         <details style="margin-top:12px">
           <summary>Bundle raw files</summary>
