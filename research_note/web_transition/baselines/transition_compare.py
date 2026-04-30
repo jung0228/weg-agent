@@ -485,12 +485,15 @@ def render_raw_step_gallery(bundle: dict[str, Any], compare_root: Path) -> str:
         )
 
     return f"""
-      <section class="raw-step-gallery">
-        <div class="section-label">Raw step IO</div>
+      <details class="raw-step-gallery raw-step-details">
+        <summary>
+          <span class="section-label">Raw step IO</span>
+          <span class="raw-step-summary-meta">{len(step_dirs)} step folders · raw prompts / outputs</span>
+        </summary>
         <div class="stack-inner">
           {''.join(cards)}
         </div>
-      </section>
+      </details>
     """
 
 
@@ -2411,7 +2414,6 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
         else render_reasoningbank_method_map(bundle, compare_root)
     )
     github_raw_io = render_github_raw_io_reference(episode_trace) if episode_trace is not None else ""
-    task_snapshot = render_task_snapshot_panel(bundle, compare_root)
     memory_items = reasoningbank_memory_items(bundle)
     result_json = read_text_or_placeholder(task_dir / "result.json")
     interact_messages = read_text_or_placeholder(task_dir / "interact_messages.json")
@@ -2503,7 +2505,6 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
             {chip("raw prompts", "indigo")}
           </div>
         </div>
-        {task_snapshot}
         <div class="model-card reasoningbank-summary-card">
           <div class="card-title">
             <h3>Bundle raw files</h3>
@@ -2668,10 +2669,9 @@ def render_task_section(group: dict[str, Any], compare_root: Path) -> str:
         return ""
     bundles = sorted(bundles, key=lambda b: (b.get("source_order", 0), b.get("source_label", "")))
     shared_bundle = bundles[0]
-    input_panel = render_task_snapshot_panel(shared_bundle, compare_root)
     model_cards = "".join(render_model_card(bundle, compare_root) for bundle in bundles)
     source_labels = sorted({compact_source_label(bundle) for bundle in bundles if compact_source_label(bundle)})
-    explanation = "왼쪽은 raw task image이고, 오른쪽은 각 baseline의 step 폴더 안 원본 파일(system/user prompt, llm_output, acc_tree, metadata)을 그대로 보여준다."
+    explanation = "각 baseline 카드에서 GitHub 기준 raw I/O와 step 폴더 원본 파일(system/user prompt, llm_output, acc_tree, metadata)을 접어서 확인한다."
     return f"""
       <section class="task-section">
         <div class="task-head">
@@ -2686,7 +2686,6 @@ def render_task_section(group: dict[str, Any], compare_root: Path) -> str:
           </div>
         </div>
         <div class="compare-layout">
-          {input_panel}
           <div class="model-strip">
             {model_cards}
           </div>
@@ -3093,11 +3092,8 @@ body {
 }
 
 .compare-layout {
-  display: grid;
-  grid-template-columns: minmax(420px, 0.90fr) minmax(760px, 1.82fr);
-  gap: 16px;
+  display: block;
   margin-top: 16px;
-  align-items: start;
 }
 
 .preview-panel {
@@ -3503,6 +3499,64 @@ body {
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.raw-step-details {
+  border-radius: 18px;
+}
+
+.raw-step-details summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  list-style: none;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 16px;
+  background: rgba(248, 250, 252, 0.86);
+  padding: 12px 14px;
+}
+
+.raw-step-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.raw-step-details summary::after {
+  content: "Open";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 56px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #0f172a;
+  color: white;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.raw-step-details[open] summary::after {
+  content: "Close";
+  background: #334155;
+}
+
+.raw-step-details summary .section-label {
+  margin-bottom: 0;
+}
+
+.raw-step-summary-meta {
+  flex: 1;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  text-align: right;
+}
+
+.raw-step-details .stack-inner {
+  margin-top: 12px;
 }
 
 .raw-step-grid {
