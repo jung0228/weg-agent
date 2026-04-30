@@ -44,6 +44,11 @@ FAMILY_TONES = {
 
 CHROME_BIN = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 STEP_DIR_RE = re.compile(r"^S(\d+)$")
+BASELINE_CARD_ORDER = {
+    "synapse": 0,
+    "awm": 1,
+    "reasoningbank": 2,
+}
 
 
 def load_bundles_from_path(path: Path) -> list[dict[str, Any]]:
@@ -72,6 +77,17 @@ def compact_source_label(bundle: dict[str, Any]) -> str:
     if model:
         return model
     return source_label(bundle)
+
+
+def baseline_card_sort_key(bundle: dict[str, Any]) -> tuple[Any, ...]:
+    metadata = bundle.get("metadata", {})
+    baseline = str(metadata.get("baseline") or "").strip()
+    return (
+        BASELINE_CARD_ORDER.get(baseline, 100),
+        baseline or compact_source_label(bundle),
+        bundle.get("source_order", 0),
+        bundle.get("source_label", ""),
+    )
 
 
 def group_bundles(paths: list[Path]) -> list[dict[str, Any]]:
@@ -2667,7 +2683,7 @@ def render_task_section(group: dict[str, Any], compare_root: Path) -> str:
     bundles = group.get("bundles", [])
     if not bundles:
         return ""
-    bundles = sorted(bundles, key=lambda b: (b.get("source_order", 0), b.get("source_label", "")))
+    bundles = sorted(bundles, key=baseline_card_sort_key)
     shared_bundle = bundles[0]
     model_cards = "".join(render_model_card(bundle, compare_root) for bundle in bundles)
     source_labels = sorted({compact_source_label(bundle) for bundle in bundles if compact_source_label(bundle)})
