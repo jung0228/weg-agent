@@ -1422,6 +1422,196 @@ def render_reasoningbank_executive_summary(episode: dict[str, Any]) -> str:
     """
 
 
+def render_github_raw_io_reference(episode: dict[str, Any]) -> str:
+    initial_bank = episode.get("initial_bank", [])
+    memory_text = render_reasoningbank_memory_markdown(
+        [item for item in initial_bank if isinstance(item, dict)]
+    )
+    steps = episode.get("steps", [])
+    first_step = steps[0] if isinstance(steps, list) and steps and isinstance(steps[0], dict) else {}
+    action_module = first_step.get("action_space_builder", {}) if isinstance(first_step, dict) else {}
+    action_module = action_module if isinstance(action_module, dict) else {}
+    memory_module = first_step.get("memory_retriever", {}) if isinstance(first_step, dict) else {}
+    memory_module = memory_module if isinstance(memory_module, dict) else {}
+    extraction = episode.get("extraction", {})
+    extraction = extraction if isinstance(extraction, dict) else {}
+    judge = episode.get("judge", {})
+    judge = judge if isinstance(judge, dict) else {}
+
+    references = [
+        {
+            "title": "1. Memory selection before the episode",
+            "source": "WebArena/run.py",
+            "input": {
+                "args.memory_path": "memories_scaling/<website>.txt",
+                "reasoning_bank": "memories_scaling/<website>.jsonl",
+                "cur_query": episode.get("task"),
+                "cache_path": "memories_scaling/<website>_embeddings.jsonl",
+            },
+            "code": """with open(f"./{mem_partial_path}/{website}.jsonl", "r") as f:
+    reasoning_bank = [json.loads(line) for line in f.readlines()]
+
+cur_query = json.load(open(f"./config_files/{args.task_name.split('.')[-1]}.json"))["intent"]
+
+res = select_memory(n=1, reasoning_bank=reasoning_bank, cur_query=cur_query, ...)
+
+with open(args.memory_path, "w") as f:
+    f.write("\\n\\n".join(mem_items) + "\\n")""",
+            "output": {
+                "selected_once_before_episode": True,
+                "memory_path_contents_for_this_demo": memory_text,
+            },
+        },
+        {
+            "title": "2. select_memory / screening",
+            "source": "WebArena/memory_management.py",
+            "input": {
+                "n": 1,
+                "cur_query": episode.get("task"),
+                "reasoning_bank_jsonl": "prior tasks with memory_items",
+                "prefer_model": "gemini",
+            },
+            "code": """id2score, ordered_ids = screening(cur_query=cur_query, task_id=task_id, ...)
+top_ids = ordered_ids[:n]
+
+out = []
+for sid in top_ids:
+    for item in reasoning_bank:
+        if item["task_id"] == sid:
+            out.append(item)
+return out""",
+            "output": {
+                "repo_output": "list[reasoning_bank_entry], then flattened to memory_path text",
+                "viewer_note": memory_module.get("output") or "selected_memory from memory_path",
+            },
+        },
+        {
+            "title": "3. Memory text injected into the policy system prompt",
+            "source": "WebArena/agents/legacy/agent.py",
+            "input": {
+                "memory_path": "file written by run.py",
+                "memory_path_text": memory_text,
+            },
+            "code": """sys_msg = dynamic_prompting.SystemPrompt().prompt
+
+if self.flags.memory_path is not None:
+    if open(self.flags.memory_path).read().strip() != "":
+        sys_msg += "\\n\\n" + "Below are some memory items ..."
+    sys_msg += "\\n\\n" + open(self.flags.memory_path).read().strip()""",
+            "output": {
+                "system_message_extra": "Below are some memory items ... + memory_path contents",
+                "available_every_step": True,
+            },
+        },
+        {
+            "title": "4. Action space is prompt text, not candidate_actions JSON",
+            "source": "WebArena/agents/legacy/dynamic_prompting.py::ActionSpace",
+            "input": {
+                "flags.action_space": "bid by default in run.py",
+                "observation": action_module.get("input") or "AXTree / HTML observation",
+            },
+            "code": """self._prompt = f"# Action space:\\n{self.action_space.describe()}{MacNote().prompt}\\n"
+
+ans_dict = parse_html_tags_raise(text_answer, keys=["action"], merge_multiple=True)
+self.action_space.to_python_code(ans_dict["action"])""",
+            "output": {
+                "prompt_component": "# Action space: ...",
+                "llm_output_required": "<action>...</action>",
+                "viewer_candidate_list": "visualization only, inferred from visible bid elements",
+            },
+        },
+        {
+            "title": "5. Policy turn input / output",
+            "source": "WebArena/agents/legacy/dynamic_prompting.py::MainPrompt + agent.py::get_action",
+            "input": {
+                "prompt_parts": [
+                    "instructions",
+                    "current observation",
+                    "history",
+                    "action_space prompt",
+                    "thinking tag",
+                    "selected memory in system prompt",
+                ],
+                "step_1_demo_observation": first_step.get("observation", {}),
+            },
+            "code": """prompt = f\"\"\"{self.instructions.prompt}{self.obs.prompt}{self.history.prompt}
+{self.action_space.prompt}{self.think.prompt}{self.memory.prompt}\"\"\"
+
+ans_dict = retry(self.chat_llm, chat_messages, ...)
+self.actions.append(ans_dict["action"])
+self.thoughts.append(ans_dict.get("think", None))""",
+            "output": {
+                "demo_policy_output": first_step.get("llm_output", {}),
+                "repo_output": "ans_dict['action'] plus trace metadata",
+            },
+        },
+        {
+            "title": "6. Post-episode memory induction",
+            "source": "WebArena/induce_scaling.py + WebArena/prompts/memory_instruction.py::PARALLEL_SI",
+            "input": {
+                "trajectory": episode_action_chain(episode),
+                "judge_or_reward": judge,
+            },
+            "code": """if reward == 0:
+    status = "success"
+else:
+    status = "fail"
+
+ex = get_info(cur_task, status)
+trajectories += f"**Query:** {ex['query']}\\n\\n"
+trajectories += f"**Trajectory {i+1} :**\\n"
+trajectories += "\\n\\n".join(ex["steps"]) + "\\n\\n"
+
+generated_memory_item = client.one_step_chat(
+    trajectories,
+    system_msg=PARALLEL_SI,
+    temperature=0.7,
+)
+
+f.write(json.dumps({"memory_items": generated_memory_item, ...}) + "\\n")""",
+            "output": {
+                "memory_item_format": "PARALLEL_SI asks for Markdown Memory Item i / Title / Description / Content",
+                "demo_extracted_items": extraction.get("items", []),
+            },
+        },
+    ]
+
+    details = []
+    for idx, ref in enumerate(references, start=1):
+        open_attr = " open" if idx == 1 else ""
+        details.append(
+            f"""
+            <details class="rb-github-raw"{open_attr}>
+              <summary>
+                <span class="raw-file-name">{esc(ref["title"])}</span>
+                <span class="raw-file-preview">{esc(ref["source"])}</span>
+              </summary>
+              <div class="rb-raw-io-grid">
+                {render_raw_file_block("input.json", json.dumps(ref["input"], ensure_ascii=False, indent=2))}
+                {render_raw_file_block("github_code_excerpt.py", str(ref["code"]))}
+                {render_raw_file_block("output.json", json.dumps(ref["output"], ensure_ascii=False, indent=2))}
+              </div>
+            </details>
+            """
+        )
+
+    return f"""
+      <section class="reasoningbank-github-io">
+        <div class="section-label">GitHub-reference raw I/O</div>
+        <p class="baseline-intro">
+          아래는 실제 ReasoningBank GitHub WebArena 경로를 기준으로 한 input/output이다. 접는 글을 열면 각 단계의 raw input, 코드 위치, output을 그대로 볼 수 있다.
+        </p>
+        <div class="rb-github-source-note">
+          Source root: <code>/Users/jhw/Desktop/web/hyeonwoo/research_note/baselines/_repos/reasoning-bank</code>
+          · remote <code>google-research/reasoning-bank</code>
+        </div>
+        <div class="stack">
+          {''.join(details)}
+        </div>
+      </section>
+    """
+
+
 def render_episode_initial_bank(episode: dict[str, Any]) -> str:
     initial_bank = episode.get("initial_bank", [])
     items = initial_bank if isinstance(initial_bank, list) else []
@@ -1912,6 +2102,7 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
         if episode_trace is not None
         else render_reasoningbank_method_map(bundle, compare_root)
     )
+    github_raw_io = render_github_raw_io_reference(episode_trace) if episode_trace is not None else ""
     task_snapshot = render_task_snapshot_panel(bundle, compare_root)
     memory_items = reasoningbank_memory_items(bundle)
     result_json = read_text_or_placeholder(task_dir / "result.json")
@@ -1985,6 +2176,8 @@ def render_reasoningbank_page(bundle: dict[str, Any], compare_root: Path) -> str
     </header>
 
     {method_map}
+
+    {github_raw_io}
 
     {step_section}
 
@@ -3848,6 +4041,49 @@ body {
   color: #0f766e;
 }
 
+.reasoningbank-github-io {
+  margin-top: 16px;
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  padding: 18px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(12px);
+}
+
+.rb-github-source-note {
+  margin: 10px 0 12px;
+  border: 1px dashed rgba(15, 23, 42, 0.14);
+  border-radius: 16px;
+  background: rgba(248, 250, 252, 0.88);
+  padding: 10px 12px;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.rb-github-source-note code {
+  color: #0f766e;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.rb-github-raw {
+  margin-top: 10px;
+}
+
+.rb-raw-io-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 10px;
+  margin-top: 12px;
+  align-items: start;
+}
+
+.rb-raw-io-grid .raw-file {
+  margin-top: 0;
+}
+
 .rb-episode-stack {
   gap: 16px;
 }
@@ -4553,6 +4789,7 @@ pre {
   .rb-chain { grid-template-columns: 1fr; }
   .rb-prepolicy-grid { grid-template-columns: 1fr; }
   .rb-score-list li { grid-template-columns: 1fr; }
+  .rb-raw-io-grid { grid-template-columns: 1fr; }
   .rb-step-row { grid-template-columns: 1fr; }
   .rb-step-media { position: static; }
   .rb-step-summary { grid-template-columns: 1fr; }
