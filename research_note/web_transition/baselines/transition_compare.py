@@ -1286,6 +1286,63 @@ def render_previous_trajectory(previous_steps: list[dict[str, Any]]) -> str:
     return f'<ol class="rb-trajectory-list">{"".join(entries)}</ol>'
 
 
+def render_retrieval_scores(scores: list[Any]) -> str:
+    rows = []
+    for score in scores:
+        if not isinstance(score, dict):
+            continue
+        rows.append(
+            f"""
+            <li>
+              <b>{esc(str(score.get("id") or "memory"))}</b>
+              <span>{esc(str(score.get("score") or "—"))}</span>
+              <em>{esc(str(score.get("reason") or "—"))}</em>
+            </li>
+            """
+        )
+    return f'<ol class="rb-score-list">{"".join(rows)}</ol>' if rows else '<div class="rb-trajectory-empty">No score trace recorded.</div>'
+
+
+def render_pre_policy_modules(step: dict[str, Any]) -> str:
+    action_module = step.get("action_space_builder", {})
+    action_module = action_module if isinstance(action_module, dict) else {}
+    memory_module = step.get("memory_retriever", {})
+    memory_module = memory_module if isinstance(memory_module, dict) else {}
+    scores = memory_module.get("scores", [])
+    scores = scores if isinstance(scores, list) else []
+
+    return f"""
+      <div class="rb-prepolicy-grid">
+        <section class="rb-prepolicy-card">
+          <div class="rb-prepolicy-head">
+            <span class="rb-phase-kicker">Pre-policy module 1</span>
+            <strong>Candidate action builder</strong>
+          </div>
+          <p class="rb-prepolicy-note">{esc(str(action_module.get("ownership") or "environment / browser wrapper"))}</p>
+          <div class="rb-module-io">
+            <div><span>Input</span><p>{esc(str(action_module.get("input") or "current browser observation / accessibility tree"))}</p></div>
+            <div><span>How</span><p>{esc(str(action_module.get("method") or "enumerate visible interactive elements and convert them to legal actions"))}</p></div>
+            <div><span>Output</span><p>{esc(str(action_module.get("output") or "candidate_actions"))}</p></div>
+          </div>
+        </section>
+        <section class="rb-prepolicy-card">
+          <div class="rb-prepolicy-head">
+            <span class="rb-phase-kicker">Pre-policy module 2</span>
+            <strong>Memory retriever</strong>
+          </div>
+          <p class="rb-prepolicy-note">{esc(str(memory_module.get("ownership") or "ReasoningBank retrieval module"))}</p>
+          <div class="rb-module-io">
+            <div><span>Input</span><p>{esc(str(memory_module.get("input") or "task + observation + trajectory + memory bank"))}</p></div>
+            <div><span>Query / ranking</span><p>{esc(str(memory_module.get("query") or memory_module.get("method") or "semantic similarity over memory items"))}</p></div>
+            <div><span>Output</span><p>{esc(str(memory_module.get("output") or "retrieved_memory"))}</p></div>
+          </div>
+          {render_retrieval_scores(scores)}
+        </section>
+      </div>
+      <div class="rb-module-flow-note">이 두 모듈의 output이 아래 LLM input 카드의 <b>Candidate actions</b>와 <b>Retrieved memory</b>로 들어간다.</div>
+    """
+
+
 def render_reasoningbank_executive_summary(episode: dict[str, Any]) -> str:
     initial_bank = episode.get("initial_bank", [])
     initial_items = [item for item in initial_bank if isinstance(item, dict)] if isinstance(initial_bank, list) else []
@@ -1304,16 +1361,22 @@ def render_reasoningbank_executive_summary(episode: dict[str, Any]) -> str:
 
     summary_cards = [
         (
-            "During action",
-            "LLM input",
-            "현재 화면 관측 + 후보 action + 이전 trajectory + retrieval된 memory item",
-            "memory bank는 여기서 업데이트되지 않고 읽히기만 한다.",
+            "Before LLM",
+            "Action-space builder",
+            "DOM/accessibility tree에서 클릭/입력 가능한 element를 뽑아 candidate_actions를 만든다.",
+            "웹 환경 wrapper 쪽 책임이다.",
+        ),
+        (
+            "Before LLM",
+            "Memory retriever",
+            "task + observation + trajectory를 query로 만들어 memory bank에서 관련 lesson을 top-k로 찾는다.",
+            "ReasoningBank의 action-time retrieval 단계다.",
         ),
         (
             "During action",
-            "LLM output",
-            "선택한 action + 선택 이유. 이후 환경이 다음 state를 반환한다.",
-            "각 step의 오른쪽 카드가 이 output과 transition이다.",
+            "Policy LLM",
+            "현재 관측 + 이전 trajectory + candidate_actions + retrieved_memory를 보고 action을 고른다.",
+            "이때 memory bank는 업데이트되지 않고 읽히기만 한다.",
         ),
         (
             "After episode",
@@ -1421,6 +1484,10 @@ def render_episode_step(
         )
 
     raw_input = {
+        "pre_policy_modules": {
+            "action_space_builder": step.get("action_space_builder", {}),
+            "memory_retriever": step.get("memory_retriever", {}),
+        },
         "task": step.get("task"),
         "observation": observation,
         "retrieved_memory": retrieved_items,
@@ -1451,8 +1518,9 @@ def render_episode_step(
           <div class="meta">policy LLM turn</div>
         </div>
         <div class="rb-step-note">
-          LLM input은 왼쪽 4가지다. 현재 관측만 보는 게 아니라, 이전 action 이력과 retrieval된 memory lesson을 같이 보고 다음 action을 고른다.
+          policy LLM 앞에는 두 단계가 있다. 먼저 환경 wrapper가 가능한 action을 만들고, ReasoningBank retriever가 관련 memory를 찾은 뒤, 둘을 합쳐 LLM prompt를 구성한다.
         </div>
+        {render_pre_policy_modules(step)}
         <div class="rb-step-io-grid">
           <section class="rb-step-panel">
             <div class="rb-step-panel-head">
@@ -3585,7 +3653,7 @@ body {
 
 .rb-exec-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   margin-top: 14px;
 }
@@ -3651,6 +3719,128 @@ body {
 .rb-chain-item code {
   font-size: 12px;
   line-height: 1.45;
+  color: #0f766e;
+}
+
+.rb-prepolicy-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.rb-prepolicy-card {
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(240, 253, 250, 0.96), rgba(255, 255, 255, 0.96));
+  padding: 13px;
+}
+
+.rb-prepolicy-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.rb-prepolicy-head strong {
+  display: block;
+  font-size: 15px;
+  line-height: 1.35;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.rb-prepolicy-note {
+  margin: 8px 0 0;
+  color: #0f766e;
+  font-size: 12px;
+  line-height: 1.55;
+  font-weight: 800;
+}
+
+.rb-module-io {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.rb-module-io > div {
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 14px;
+  background: rgba(255,255,255,0.86);
+  padding: 9px 10px;
+}
+
+.rb-module-io span,
+.rb-score-list b {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 900;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.rb-module-io p {
+  margin: 0;
+  color: #1e293b;
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.rb-score-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 7px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rb-score-list li {
+  display: grid;
+  grid-template-columns: 58px 48px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  border: 1px dashed rgba(15, 23, 42, 0.14);
+  border-radius: 13px;
+  background: rgba(255,255,255,0.72);
+  padding: 8px 9px;
+}
+
+.rb-score-list b,
+.rb-score-list span,
+.rb-score-list em {
+  margin: 0;
+  color: #334155;
+  font-size: 12px;
+  line-height: 1.45;
+  font-style: normal;
+  overflow-wrap: anywhere;
+}
+
+.rb-score-list span {
+  color: #0f766e;
+  font-weight: 900;
+}
+
+.rb-module-flow-note {
+  margin: 8px 0 12px;
+  border: 1px dashed rgba(15, 23, 42, 0.16);
+  border-radius: 16px;
+  background: rgba(248, 250, 252, 0.86);
+  padding: 10px 12px;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.rb-module-flow-note b {
   color: #0f766e;
 }
 
@@ -4357,6 +4547,8 @@ pre {
   .rb-exec-head { grid-template-columns: 1fr; }
   .rb-exec-grid { grid-template-columns: 1fr; }
   .rb-chain { grid-template-columns: 1fr; }
+  .rb-prepolicy-grid { grid-template-columns: 1fr; }
+  .rb-score-list li { grid-template-columns: 1fr; }
   .rb-step-row { grid-template-columns: 1fr; }
   .rb-step-media { position: static; }
   .rb-step-summary { grid-template-columns: 1fr; }

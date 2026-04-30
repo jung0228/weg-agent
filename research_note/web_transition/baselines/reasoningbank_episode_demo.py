@@ -85,6 +85,25 @@ def build_episode() -> dict[str, Any]:
                 {"id": "a2", "action": "click('e2')", "surface": "Open sponsored deal"},
                 {"id": "a3", "action": "click('e4')", "surface": "Open sort menu"},
             ],
+            "action_space_builder": {
+                "module": "Web environment action-space builder",
+                "ownership": "environment / browser wrapper, not the ReasoningBank memory module",
+                "input": "raw browser state or accessibility tree for flight_results",
+                "method": "enumerate visible interactive elements, keep click/selector actions that can advance the task, and attach stable element ids",
+                "output": "candidate_actions a1-a3",
+            },
+            "memory_retriever": {
+                "module": "ReasoningBank memory retriever",
+                "ownership": "ReasoningBank pre-policy retrieval module",
+                "input": "task + state summary + candidate action affordances + seeded memory bank",
+                "query": "cheapest flight results page with organic card, sponsored deal, and in-page transition risk",
+                "method": "rank memory items by semantic relevance to the current task/state, then inject top-k into the policy prompt",
+                "scores": [
+                    {"id": "M0-1", "score": 0.91, "reason": "organic result vs sponsored detour directly matches the current page"},
+                    {"id": "M0-2", "score": 0.78, "reason": "selecting a fare may open a panel without URL navigation"},
+                ],
+                "output": "retrieved_memory M0-1, M0-2",
+            },
             "llm_input_summary": "task + flight_results observation + retrieved memory M0-1/M0-2 + candidate actions",
             "llm_output": {
                 "thought": (
@@ -126,6 +145,25 @@ def build_episode() -> dict[str, Any]:
                 {"id": "a5", "action": "click('e6')", "surface": "Baggage details"},
                 {"id": "a6", "action": "click('e7')", "surface": "Close panel"},
             ],
+            "action_space_builder": {
+                "module": "Web environment action-space builder",
+                "ownership": "environment / browser wrapper, not the ReasoningBank memory module",
+                "input": "raw browser state or accessibility tree for fare_detail_panel",
+                "method": "enumerate visible panel controls and convert them into legal click actions",
+                "output": "candidate_actions a4-a6",
+            },
+            "memory_retriever": {
+                "module": "ReasoningBank memory retriever",
+                "ownership": "ReasoningBank pre-policy retrieval module",
+                "input": "task + fare-detail panel observation + previous action trajectory + seeded memory bank",
+                "query": "selected fare detail panel with continue control and URL may not change",
+                "method": "retrieve the memory item whose description/content best matches the current state transition ambiguity",
+                "scores": [
+                    {"id": "M0-2", "score": 0.86, "reason": "panel/form progress should be verified by visible UI state"},
+                    {"id": "M0-1", "score": 0.39, "reason": "organic-result lesson was already used and is less relevant inside the detail panel"},
+                ],
+                "output": "retrieved_memory M0-2",
+            },
             "llm_input_summary": "task + fare_detail_panel observation + retrieved memory M0-2 + current trajectory",
             "llm_output": {
                 "thought": (
@@ -168,6 +206,25 @@ def build_episode() -> dict[str, Any]:
                 {"id": "a8", "action": "click('e10')", "surface": "Sign in"},
                 {"id": "a9", "action": "click('e11')", "surface": "Back to results"},
             ],
+            "action_space_builder": {
+                "module": "Web environment action-space builder",
+                "ownership": "environment / browser wrapper, not the ReasoningBank memory module",
+                "input": "raw browser state or accessibility tree for passenger_info",
+                "method": "enumerate visible form/navigation controls and expose safe actions, while policy decides whether to stop",
+                "output": "candidate_actions a7-a9 plus finish action available to the agent",
+            },
+            "memory_retriever": {
+                "module": "ReasoningBank memory retriever",
+                "ownership": "ReasoningBank pre-policy retrieval module",
+                "input": "task + passenger-info observation + current trajectory + seeded memory bank",
+                "query": "traveler information form reached after selecting cheapest fare; private data boundary",
+                "method": "retrieve progress-verification memory; no private-data memory exists yet, so the policy must infer the safe stop boundary",
+                "scores": [
+                    {"id": "M0-2", "score": 0.81, "reason": "traveler form is a visible UI-state progress signal"},
+                    {"id": "M0-1", "score": 0.34, "reason": "primary-result selection is no longer the active decision"},
+                ],
+                "output": "retrieved_memory M0-2",
+            },
             "llm_input_summary": "task + passenger_info observation + retrieved memory M0-2 + current trajectory",
             "llm_output": {
                 "thought": (
@@ -222,6 +279,22 @@ def build_episode() -> dict[str, Any]:
             "A cold-start run could begin with an empty bank and only write items after the first episode."
         ),
         "initial_bank": initial_bank,
+        "pre_policy_modules": [
+            {
+                "name": "Action-space builder",
+                "role": "turn raw browser state into candidate_actions",
+                "input": "DOM/accessibility tree + current observation",
+                "output": "legal action list such as click('e1'), click('e5')",
+                "note": "This is usually provided by the web-agent environment wrapper rather than ReasoningBank itself.",
+            },
+            {
+                "name": "Memory retriever",
+                "role": "turn current task/state into retrieved_memory",
+                "input": "task + observation summary + trajectory_so_far + memory bank",
+                "output": "top-k memory items inserted into the policy prompt",
+                "note": "This is the ReasoningBank-specific pre-policy step.",
+            },
+        ],
         "steps": steps,
         "judge": {
             "input": "task + full trajectory + final observation",
@@ -293,6 +366,10 @@ def write_episode(task_dir: Path) -> None:
             step_dir / "user_prompt.txt",
             {
                 "task": episode["task"],
+                "pre_policy_modules": {
+                    "action_space_builder": step["action_space_builder"],
+                    "memory_retriever": step["memory_retriever"],
+                },
                 "observation": step["observation"],
                 "retrieved_memory": [
                     item for item in episode["initial_bank"] if item["id"] in step["retrieved_memory_ids"]
